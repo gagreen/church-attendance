@@ -16,7 +16,7 @@
 3. Authentication → URL Configuration에 로컬(`http://localhost:3000`)과 프로덕션(Vercel 도메인) 리디렉션 URL을 모두 추가.
 4. Database → Extensions에서 `pgcrypto`(uuid 생성용) 활성화 확인 — Supabase는 기본으로 켜져 있는 경우가 많지만 확인 필요.
 5. 로컬에서 `supabase init` → `supabase link --project-ref <project-ref>` 후, 아래 스키마를 `supabase/migrations/0001_init.sql`로 작성하고 `supabase db push`.
-6. 관리자 계정 1명을 `teachers` 테이블에 `role='admin'`으로 시드(seed) — 처음엔 SQL Editor에서 직접 insert.
+6. 관리자 계정 1명을 `teachers` 테이블에 `role='admin'`으로 시드(seed) — 처음엔 SQL Editor에서 직접 insert. `teachers.id`가 `auth.users.id`를 참조하므로 그 계정이 Google 로그인을 한 번 시도한 뒤에 `auth.users`에서 id를 가져와 insert한다(예시 SQL: [auth-setup.md](auth-setup.md#3-교사-등록-화이트리스트)).
 
 ## 테이블 스키마
 
@@ -26,7 +26,7 @@ create table teachers (
   id uuid primary key references auth.users(id),
   email text not null unique,
   name text not null,
-  role text not null check (role in ('admin', 'teacher')),
+  role text not null check (role in ('admin', 'teacher', 'pastor')),
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -79,17 +79,32 @@ create table student_notes (
   created_by uuid not null references teachers(id),
   created_at timestamptz not null default now()
 );
+
+-- app_settings: 전역 설정 (단일 행. id는 항상 true)
+create table app_settings (
+  id boolean primary key default true check (id),
+  teachers_can_view_all boolean not null default true,
+  updated_by uuid references teachers(id),
+  updated_at timestamptz not null default now()
+);
 ```
 
 ### 컬럼 설명이 필요한 부분
+
+- `teachers.role`: `admin`(전체 조회·수정 + 마스터 관리), `teacher`(담당 반, 또는 `app_settings.teachers_can_view_all`이 켜져 있으면 전체 반 조회·수정), `pastor`(목사님 — 전체 조회 전용, 수정 불가). 로그인 화이트리스트가 `teachers` 하나이므로 목사님도 이 테이블에 등록한다.
+- `app_settings.teachers_can_view_all`: 전체 교사 일괄 스위치. `true`(기본값)면 모든 교사가 모든 반의 학생·출석·`student_notes`·`attendance.comment`를 조회하고 수정할 수 있다. 관리자가 `false`로 끄면 `teacher_classes`에 매핑된 담당 반만 허용된다. 읽기와 쓰기 권한은 분리하지 않는다. 교사별 개별 설정은 두지 않는다. 판단은 RLS(`can_access_class`)가 한 곳에서 하므로 앱 코드는 스위치 값을 따로 검사하지 않는다(메뉴 노출 여부 등 UI 분기에만 참고).
 
 - `attendance` unique `(date, student_id)`: 같은 학생이 같은 날 두 번 기록되는 것을 DB가 막는다. 저장 로직은 "있으면 update, 없으면 insert"가 아니라 `upsert(onConflict: 'date,student_id')`로 짠다 — 두 교사가 동시에 같은 학생·같은 날짜를 저장해도 경합 없이 하나로 수렴한다.
 - `attendance.recorded_by`/`last_modified_by`는 `teachers.id`(uuid, Supabase Auth 사용자 id와 동일)를 참조한다. 화면에 표시할 이름이 필요하면 조인해서 가져온다 — 별도 텍스트 컬럼으로 이름을 중복 저장하지 않는다.
 - `classes`에는 담당 교사 컬럼을 두지 않는다. "이 반 담당 교사가 누구인지"는 `teacher_classes` 조인으로 구한다.
 
+### 인덱스
+
+`attendance(student_id, date desc)`(학생 상세의 출석 이력), `attendance(class_id, date)`(반별 조회), `students(class_id)`(반별 학생 목록·RLS 조인). `unique(date, student_id)`는 `student_id` 단독 조회를 커버하지 못해서 별도로 둔다.
+
 ## RLS 정책
 
-기본 방침: `teachers.is_active = true`인 사용자만 무언가를 할 수 있고, `role='admin'`이면 전체, `role='teacher'`이면 `teacher_classes`에 매핑된 반만 허용한다.
+기본 방침: `teachers.is_active = true`인 사용자만 무언가를 할 수 있다. `role='admin'`은 전체, `role='teacher'`는 `app_settings.teachers_can_view_all`이 켜져 있으면 전체 반, 꺼져 있으면 `teacher_classes`에 매핑된 반만 허용한다(조회·수정 동일). `role='pastor'`는 전체 조회만 가능하고 수정은 못 한다. 아래는 `0001_init.sql` + `0002_view_all_and_pastor.sql`을 합친 최종 상태다.
 
 ```sql
 alter table teachers enable row level security;
@@ -98,29 +113,45 @@ alter table teacher_classes enable row level security;
 alter table students enable row level security;
 alter table attendance enable row level security;
 alter table student_notes enable row level security;
+alter table app_settings enable row level security;
 
--- 헬퍼: 현재 로그인 사용자가 활성 관리자인지
-create or replace function is_admin()
-returns boolean language sql stable as $$
-  select exists (
-    select 1 from teachers
-    where id = auth.uid() and role = 'admin' and is_active = true
-  );
+-- 헬퍼는 모두 security definer + search_path 고정: 헬퍼가 teachers를 조회할 때 teachers의 RLS 정책이
+-- 다시 헬퍼를 호출해 재귀하는 것을 막는다.
+create or replace function current_role_name() returns text
+language sql stable security definer set search_path = public as $$
+  select role from teachers where id = auth.uid() and is_active
 $$;
 
--- 헬퍼: 현재 로그인 사용자가 활성 교사(관리자 포함)이고, 해당 반에 접근 가능한지
-create or replace function can_access_class(target_class_id uuid)
-returns boolean language sql stable as $$
-  select
-    exists (select 1 from teachers where id = auth.uid() and is_active = true)
-    and (
-      is_admin()
+create or replace function is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(current_role_name() = 'admin', false)
+$$;
+
+create or replace function is_pastor() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(current_role_name() = 'pastor', false)
+$$;
+
+-- 반 접근(조회·수정 공통). 목사님은 조회 전용이므로 여기서 제외하고 select 정책에서 따로 허용한다.
+create or replace function can_access_class(target_class_id uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case current_role_name()
+    when 'admin' then true
+    when 'teacher' then
+      (select teachers_can_view_all from app_settings)
       or exists (
         select 1 from teacher_classes
         where teacher_id = auth.uid() and class_id = target_class_id
       )
-    );
+    else false
+  end
 $$;
+
+-- app_settings: 활성 사용자는 조회, 수정은 관리자만
+create policy app_settings_select on app_settings for select
+  using (current_role_name() is not null);
+create policy app_settings_update on app_settings for update
+  using (is_admin()) with check (is_admin());
 
 -- classes: 활성 교사는 전체 조회 가능(반 선택 화면에서 목록은 봐야 함), 쓰기는 관리자만
 create policy classes_select on classes for select
@@ -128,24 +159,27 @@ create policy classes_select on classes for select
 create policy classes_write on classes for all
   using (is_admin()) with check (is_admin());
 
--- students: 담당 반 학생만 조회/수정, 관리자는 전체
+-- students: 접근 가능한 반의 학생만 조회/수정 (목사님은 전체 조회)
 create policy students_select on students for select
-  using (can_access_class(class_id));
+  using (can_access_class(class_id) or is_pastor());
 create policy students_write on students for all
   using (can_access_class(class_id)) with check (can_access_class(class_id));
 
--- attendance: 담당 반 기록만 조회/입력/수정 (과거 날짜 수정 잠금 없음 — 반 권한만 확인)
+-- attendance: 접근 가능한 반의 기록만 조회/입력/수정 (과거 날짜 수정 잠금 없음 — 반 권한만 확인. 목사님은 전체 조회)
 create policy attendance_select on attendance for select
-  using (can_access_class(class_id));
+  using (can_access_class(class_id) or is_pastor());
 create policy attendance_write on attendance for all
   using (can_access_class(class_id)) with check (can_access_class(class_id));
 
--- student_notes: 학생이 속한 반 기준으로 접근 판단
+-- student_notes: 학생이 속한 반 기준으로 접근 판단 (목사님은 전체 조회)
 create policy student_notes_select on student_notes for select
-  using (exists (
-    select 1 from students where students.id = student_notes.student_id
-    and can_access_class(students.class_id)
-  ));
+  using (
+    is_pastor()
+    or exists (
+      select 1 from students where students.id = student_notes.student_id
+      and can_access_class(students.class_id)
+    )
+  );
 create policy student_notes_write on student_notes for all
   using (exists (
     select 1 from students where students.id = student_notes.student_id
@@ -163,7 +197,7 @@ create policy teacher_classes_write on teacher_classes for all
   using (is_admin()) with check (is_admin());
 ```
 
-정책을 추가/수정할 때마다 교사 계정과 관리자 계정 양쪽으로 실제 조회·쓰기 동작을 확인한다 — RLS는 조건을 하나만 잘못 걸어도 "테이블은 있는데 아무것도 안 보이는" 문제가 조용히 발생한다.
+정책을 추가/수정할 때마다 교사·관리자·목사님 계정으로, 그리고 `teachers_can_view_all`을 켠 상태/끈 상태 양쪽에서 실제 조회·쓰기 동작을 확인한다 — RLS는 조건을 하나만 잘못 걸어도 "테이블은 있는데 아무것도 안 보이는" 문제가 조용히 발생한다.
 
 ## 마이그레이션 관리
 

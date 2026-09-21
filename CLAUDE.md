@@ -8,7 +8,7 @@
 교회 주일학교용 출석 관리 웹앱. 반 6개 · 학생 20명 · 교사 6~8명 규모, 비상업적(교회 내부용) 운영.
 **운영비 0원**이 설계의 최우선 제약이며, Next.js(App Router, TypeScript) + Supabase(Postgres, Auth) + Vercel 조합으로 각 서비스의 무료 티어만으로 구축한다.
 
-현재 상태: 스택 전환 결정 완료 — 기존에는 Google Apps Script + Google Sheet로 설계했으나, "구조화된 관계형 DB를 쓰고 싶다"는 이유로 Next.js + Supabase + Vercel로 전환했다. Next.js 프로젝트 스캐폴딩, git 저장소 초기화, Supabase 프로젝트 생성(리전 `ap-northeast-2`)과 초기 마이그레이션(`supabase/migrations/0001_init.sql`) 적용까지 완료했다. 첫 git 커밋(`main` 브랜치)도 끝났다. 아직 안 된 것: Google OAuth 프로바이더 연결, 로그인/출석 화면 실제 구현, Vercel 배포 연결. 이 문서와 `docs/data-model-guide.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
+현재 상태: 스택 전환 결정 완료 — 기존에는 Google Apps Script + Google Sheet로 설계했으나, "구조화된 관계형 DB를 쓰고 싶다"는 이유로 Next.js + Supabase + Vercel로 전환했다. Next.js 프로젝트 스캐폴딩, git 저장소 초기화, Supabase 프로젝트 생성(리전 `ap-northeast-2`)과 초기 마이그레이션(`supabase/migrations/0001_init.sql`) 적용까지 완료했다. 첫 git 커밋(`main` 브랜치)도 끝났다. 로그인 화면·OAuth 콜백·화이트리스트 검사 코드는 구현되었다(설정 절차: [docs/auth-setup.md](docs/auth-setup.md)). 아직 안 된 것: Google Cloud/Supabase 콘솔에서 Google OAuth 프로바이더 연결(수동 작업), 출석 화면 실제 구현, Vercel 배포 연결. 이 문서와 `docs/data-model-guide.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
 
 이 제약(운영비 0원, 비상업적 무료 티어 내 운영)을 어기는 방향(유료 플랜 필수, 별도 유료 서버 등)으로 자의적으로 확장하지 말 것.
 
@@ -47,6 +47,7 @@ Supabase Postgres (관리형 DB)
 
 ```bash
 npm run dev                 # Next.js 로컬 개발 서버
+npm test                    # Vitest 유닛 테스트 (lib/ 순수 로직)
 supabase start              # 로컬 Supabase(Docker) 실행 — DB/Auth 로컬 테스트용
 supabase db push            # supabase/migrations의 스키마 변경을 연결된 프로젝트에 적용
 supabase db diff            # 로컬 DB와 마이그레이션 파일 간 차이 확인
@@ -74,6 +75,7 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 | `student_notes`   | 학생 프로필 메모 (날짜 무관, 지속 특이사항) | id, student_id, note, created_by, created_at                                                                  |
 | `teachers`        | 교사 마스터 · 로그인 화이트리스트           | id (auth.users.id), email, name, role, is_active                                                              |
 | `teacher_classes` | 교사 ↔ 반 매핑 (다대다)                     | teacher_id, class_id                                                                                          |
+| `app_settings`    | 전역 설정 (단일 행)                         | id (항상 true), teachers_can_view_all, updated_by, updated_at                                                 |
 
 - **출석 상태**는 출석 / 지각 / 결석 / 공예배 4종으로 고정 (Postgres `check` 제약조건으로 강제).
 - **코멘트는 2종을 구분해서 유지**한다: `attendance.comment`(당일 사유, 예: 지각 이유)와 `student_notes`(지속적 특이사항, 예: 알레르기). 이 둘을 하나로 합치지 않는다.
@@ -84,8 +86,9 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 ## 권한 모델
 
-- **관리자** (복수 가능): 전체 반·학생 조회/통계, 교사·학생 마스터 관리, 모든 기록 수정 가능.
-- **교사**: `teacher_classes`에 매핑된 담당 반만 출석 입력·수정 가능.
+- **관리자** (복수 가능): 전체 반·학생 조회/통계, 교사·학생 마스터 관리, 모든 기록 수정 가능. `app_settings.teachers_can_view_all` 스위치도 관리자만 바꾼다.
+- **교사**: 기본(`teachers_can_view_all = true`)으로는 모든 반·학생을 조회하고 출석을 입력·수정할 수 있다(학생 전체보기 포함). 관리자가 스위치를 끄면 `teacher_classes`에 매핑된 담당 반만 가능하다. 스위치는 전체 교사 일괄 적용이며 교사별 개별 설정은 없다. 읽기·쓰기 권한은 분리하지 않는다. `student_notes`와 `attendance.comment`도 같은 범위로 공개된다.
+- **목사님** (`role='pastor'`, `teachers` 테이블에 등록): 모든 학생의 출석·코멘트·메모를 **조회만** 할 수 있고 수정은 못 한다.
 - 로그인 사용자가 `teachers` 테이블에 없으면 접근 차단 (화이트리스트 방식, 자체 회원가입 없음). Supabase Auth 자체는 Google 계정이면 누구나 로그인에 성공할 수 있으므로, 반드시 애플리케이션 레벨(및 RLS 정책)에서 `teachers.is_active` 여부를 확인해 차단한다.
 - 권한은 애플리케이션 코드뿐 아니라 **Supabase RLS(Row Level Security) 정책으로 DB 레벨에서도 이중으로 강제**한다 — Server Action에서의 권한 체크가 누락되더라도 DB가 잘못된 접근을 막아주는 것이 Postgres 전환의 핵심 이점이다.
 - **과거 기록 수정에 잠금이 없다** — 모든 교사가 지난 날짜 기록을 자유롭게 수정할 수 있는 것이 확정된 설계다. 이를 막는 잠금/승인 로직을 임의로 추가하지 않는다. 대신 감사 추적을 위해 `attendance`에 `last_modified_by`/`last_modified_at` 컬럼을 둔다 — 최초 입력 시 `recorded_*`와 동일값, 이후 수정 시에만 갱신.

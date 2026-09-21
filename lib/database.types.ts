@@ -39,6 +39,35 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          id: boolean
+          teachers_can_view_all: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: boolean
+          teachers_can_view_all?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: boolean
+          teachers_can_view_all?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance: {
         Row: {
           class_id: string
@@ -265,7 +294,9 @@ export type Database = {
     }
     Functions: {
       can_access_class: { Args: { target_class_id: string }; Returns: boolean }
+      current_role_name: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      is_pastor: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
