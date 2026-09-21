@@ -8,7 +8,7 @@
 교회 주일학교용 출석 관리 웹앱. 반 6개 · 학생 20명 · 교사 6~8명 규모, 비상업적(교회 내부용) 운영.
 **운영비 0원**이 설계의 최우선 제약이며, Next.js(App Router, TypeScript) + Supabase(Postgres, Auth) + Vercel 조합으로 각 서비스의 무료 티어만으로 구축한다.
 
-현재 상태: 스택 전환 결정 완료 — 기존에는 Google Apps Script + Google Sheet로 설계했으나, "구조화된 관계형 DB를 쓰고 싶다"는 이유로 Next.js + Supabase + Vercel로 전환했다. Next.js 프로젝트 스캐폴딩, git 저장소 초기화, Supabase 프로젝트 생성(리전 `ap-northeast-2`)과 초기 마이그레이션(`supabase/migrations/0001_init.sql`) 적용까지 완료했다. 아직 안 된 것: 첫 git 커밋(커밋 전략 확인 필요), Google OAuth 프로바이더 연결, 로그인/출석 화면 실제 구현, Vercel 배포 연결. 이 문서와 `docs/data-model-guide.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
+현재 상태: 스택 전환 결정 완료 — 기존에는 Google Apps Script + Google Sheet로 설계했으나, "구조화된 관계형 DB를 쓰고 싶다"는 이유로 Next.js + Supabase + Vercel로 전환했다. Next.js 프로젝트 스캐폴딩, git 저장소 초기화, Supabase 프로젝트 생성(리전 `ap-northeast-2`)과 초기 마이그레이션(`supabase/migrations/0001_init.sql`) 적용까지 완료했다. 첫 git 커밋(`main` 브랜치)도 끝났다. 아직 안 된 것: Google OAuth 프로바이더 연결, 로그인/출석 화면 실제 구현, Vercel 배포 연결. 이 문서와 `docs/data-model-guide.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
 
 이 제약(운영비 0원, 비상업적 무료 티어 내 운영)을 어기는 방향(유료 플랜 필수, 별도 유료 서버 등)으로 자의적으로 확장하지 말 것.
 
@@ -95,7 +95,7 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 로그인(Google 계정) → 반 선택(교사는 담당 반만, 관리자는 전체+필터) → 날짜 선택(기본값 오늘, 캘린더로 과거 이동) → 출석 입력(학생 리스트 + 상태 버튼 + 당일 코멘트) → 학생 상세(출석 이력 + 프로필 메모 + 통계)
 
-엑셀 내보내기는 별도 화면이 아니라 각 조회 화면(출석 입력 목록, 통계)에 "엑셀로 내보내기" 버튼으로 곁들인다 — 서버(Route Handler)에서 SheetJS(`xlsx`)로 `.xlsx`를 생성해 다운로드시킨다.
+엑셀 내보내기는 별도 화면이 아니라 각 조회 화면(출석 입력 목록, 통계)에 "엑셀로 내보내기" 버튼으로 곁들인다 — 서버(Route Handler)에서 `exceljs`로 `.xlsx`를 생성해 다운로드시킨다 (SheetJS `xlsx`는 npm 배포판에 미패치 취약점이 있어 사용하지 않는다).
 
 ## 코드 스타일
 

@@ -182,5 +182,5 @@ create policy teacher_classes_write on teacher_classes for all
 엑셀 산출물은 화면에 필요한 최소 컬럼만 내려주는 조회 함수와 별개로, 내보내기 전용 쿼리에서는 조인해서 사람이 읽을 수 있는 형태로 만든다.
 
 - **출석 기록 원본 내보내기 (P1)**: `attendance` × `students.name` × `classes.name` × `teachers.name`(recorded_by/last_modified_by) 조인. 컬럼 예시: 날짜, 반 이름, 학생 이름, 상태, 코멘트, 기록자, 최종수정자, 최종수정시각.
-- **통계 리포트 내보내기 (P3)**: 반별/학생별로 `status`를 `group by`해서 월간 집계(출석/지각/결석/공예배 횟수, 출석률)한 결과를 내보낸다. 집계는 Postgres 쪽에서 SQL로 계산하고(뷰 또는 함수), Next.js는 결과 행을 SheetJS로 `.xlsx`로 변환하는 역할만 한다 — 통계 로직을 클라이언트나 애플리케이션 코드에 중복 구현하지 않는다.
-- 내보내기 Route Handler는 `lib/xlsx.ts`의 공통 헬퍼(행 배열 → `.xlsx` 응답)를 통해서만 파일을 생성한다 — 화면마다 SheetJS 호출 코드를 따로 짜지 않는다.
+- **통계 리포트 내보내기 (P3)**: 반별/학생별로 `status`를 `group by`해서 월간 집계(출석/지각/결석/공예배 횟수, 출석률)한 결과를 내보낸다. 집계는 Postgres 쪽에서 SQL로 계산하고(뷰 또는 함수), Next.js는 결과 행을 `exceljs`로 `.xlsx`로 변환하는 역할만 한다 — 통계 로직을 클라이언트나 애플리케이션 코드에 중복 구현하지 않는다.
+- 내보내기 Route Handler는 `lib/xlsx.ts`의 공통 헬퍼(행 배열 → `.xlsx` 응답)를 통해서만 파일을 생성한다 — 화면마다 `exceljs` 호출 코드를 따로 짜지 않는다.
