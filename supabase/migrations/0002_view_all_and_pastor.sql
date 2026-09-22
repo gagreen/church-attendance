@@ -17,6 +17,16 @@ create table app_settings (
 insert into app_settings default values;
 alter table app_settings enable row level security;
 
+-- 2-1) GRANT는 "어떤 SQL 종류를 시도할 수 있는지"를 정하고 RLS 정책은 "그중 어떤 행"을 허용할지를 정한다.
+-- Supabase 클라우드 프로젝트는 테이블 생성 시 authenticated/anon에 기본으로 전체 권한을 준다(0001_init.sql
+-- 적용 당시 이미 부여됨, 확인 완료). 반면 `supabase start`(Docker) 로컬 환경은 이 기본 GRANT가 없어
+-- select/insert/update가 permission denied로 막힌다 — 로컬 검증 중 발견. 이 문장으로 두 환경을 맞추고
+-- 의도를 명시적으로 남긴다. (delete는 앱에서 쓰지 않는다 — 마스터 데이터는 is_active로 비활성화하고,
+-- 기록은 삭제하지 않는다.)
+grant select, insert, update on
+  teachers, classes, teacher_classes, students, attendance, student_notes, app_settings
+to authenticated;
+
 -- 3) 헬퍼 함수
 -- security definer: 헬퍼가 teachers를 조회할 때 teachers의 RLS 정책(is_admin() 호출)이 다시 평가되어
 -- 재귀하는 것을 막는다. search_path를 고정해 스키마 가로채기를 방지한다.
