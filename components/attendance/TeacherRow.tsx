@@ -1,27 +1,23 @@
 'use client';
 
-import Link from 'next/link';
-import type { AttendanceStatus, AttendanceViewRow } from '@/app/actions/attendance';
+import type { AttendanceStatus } from '@/app/actions/attendance';
+import type { TeacherAttendanceRow } from '@/app/actions/teacherAttendance';
 import { AttendanceStatusRow } from './AttendanceStatusRow';
 
-export function StudentRow({
+export function TeacherRow({
   row,
-  showClassTag,
   showLateButton,
   saving,
   commentOpen,
-  readOnly,
   onToggleComment,
   onCommentBlockedTap,
   onStatusChange,
   onCommentCommit,
 }: {
-  row: AttendanceViewRow;
-  showClassTag: boolean;
+  row: TeacherAttendanceRow;
   showLateButton: boolean;
   saving: boolean;
   commentOpen: boolean;
-  readOnly: boolean;
   onToggleComment: () => void;
   onCommentBlockedTap: () => void;
   onStatusChange: (status: AttendanceStatus) => void;
@@ -32,15 +28,9 @@ export function StudentRow({
       leading={
         <div className="w-16 shrink-0 sm:w-40">
           <p className="truncate text-xs text-zinc-400">
-            {row.grade ?? '미지정'}
-            {showClassTag ? ` · ${row.className}` : ''}
+            {row.classNames.length > 0 ? row.classNames.join(', ') : '담당 반 없음'}
           </p>
-          <Link
-            href={`/students/${row.studentId}`}
-            className="block truncate text-sm font-medium text-blue-700 hover:underline dark:text-blue-400"
-          >
-            {row.studentName}
-          </Link>
+          <p className="truncate text-sm font-medium">{row.teacherName}</p>
         </div>
       }
       status={row.status}
@@ -48,7 +38,8 @@ export function StudentRow({
       comment={row.comment}
       saving={saving}
       commentOpen={commentOpen}
-      readOnly={readOnly}
+      // 목사님도 교사 출석은 입력할 수 있다(docs/screens/teacher-attendance.md) — 화면 전체 readOnly와 무관.
+      readOnly={false}
       onToggleComment={onToggleComment}
       onCommentBlockedTap={onCommentBlockedTap}
       onStatusChange={onStatusChange}

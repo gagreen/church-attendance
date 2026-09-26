@@ -3,7 +3,9 @@
 
 const STORAGE_KEY = 'attendance-context';
 
-export type StoredAttendanceContext = { classId: string; date: string };
+export type AttendanceTab = 'student' | 'teacher';
+
+export type StoredAttendanceContext = { classId: string; date: string; tab: AttendanceTab };
 
 export function loadStoredContext(): StoredAttendanceContext | null {
   try {
@@ -11,7 +13,8 @@ export function loadStoredContext(): StoredAttendanceContext | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed?.classId !== 'string' || typeof parsed?.date !== 'string') return null;
-    return { classId: parsed.classId, date: parsed.date };
+    // 교사 탭이 생기기 전에 저장된 값에는 tab이 없다 — 학생 탭으로 간주한다.
+    return { classId: parsed.classId, date: parsed.date, tab: parsed.tab === 'teacher' ? 'teacher' : 'student' };
   } catch {
     // 프라이빗 모드 등으로 접근이 막혀도 화면은 서버 기본값으로 정상 동작해야 한다.
     return null;

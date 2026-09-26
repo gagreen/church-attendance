@@ -3,8 +3,14 @@
 import { requireTeacher } from '@/lib/auth';
 import { thisWeekSundayInKST } from '@/lib/date';
 import { listAccessibleClasses, listAssignedClassIds, type ClassOption } from '@/lib/db/classes';
+import { getAppSettings } from '@/lib/db/settings';
 import { listActiveStudents } from '@/lib/db/students';
-import { listAttendanceForDate, upsertAttendance, type AttendanceStatus } from '@/lib/db/attendance';
+import {
+  insertMissingAttendance,
+  listAttendanceForDate,
+  upsertAttendance,
+  type AttendanceStatus,
+} from '@/lib/db/attendance';
 
 export type { AttendanceStatus } from '@/lib/db/attendance';
 export type { ClassOption } from '@/lib/db/classes';
@@ -23,6 +29,7 @@ export type AttendanceInitialContext = {
   classOptions: ClassOption[];
   defaultClassId: string; // 'all' 또는 class id
   defaultDate: string;
+  showLateButton: boolean; // app_settings.show_late_button — 상태 버튼·요약 바의 `지각` 표시 여부
 };
 
 // 화면 최초 진입 시 컨텍스트 바 기본값. 로그인 직후 별도 화면 없이 이 화면으로 바로 들어오므로
@@ -30,7 +37,7 @@ export type AttendanceInitialContext = {
 // localStorage에 기억된 값이 있으면 클라이언트에서 이 기본값을 덮어쓴다.
 export async function getAttendanceInitialContext(): Promise<AttendanceInitialContext> {
   const teacher = await requireTeacher();
-  const classOptions = await listAccessibleClasses();
+  const [classOptions, settings] = await Promise.all([listAccessibleClasses(), getAppSettings()]);
 
   let defaultClassId = 'all';
   if (teacher.role === 'teacher') {
@@ -38,7 +45,12 @@ export async function getAttendanceInitialContext(): Promise<AttendanceInitialCo
     defaultClassId = assigned[0] ?? 'all';
   }
 
-  return { classOptions, defaultClassId, defaultDate: thisWeekSundayInKST() };
+  return {
+    classOptions,
+    defaultClassId,
+    defaultDate: thisWeekSundayInKST(),
+    showLateButton: settings.showLateButton,
+  };
 }
 
 export type GetAttendanceViewParams = { classId: string; date: string };
@@ -117,5 +129,28 @@ export async function saveAttendanceComment(params: SaveAttendanceCommentParams)
   } catch (e) {
     console.error('코멘트 저장 실패:', e);
     return { ok: false, error: '저장에 실패했습니다. 다시 시도해 주세요.' };
+  }
+}
+
+export type CloseAttendanceParams = {
+  date: string;
+  students: { studentId: string; classId: string }[];
+};
+
+// "출석 종료": 화면에 로드된 미체크 학생들을 결석으로 일괄 저장한다. 교사가 명시적으로 누른 동작이므로
+// recorded_by가 그 교사로 남고, 이미 기록이 있는 학생은 건드리지 않는다.
+export async function closeAttendanceAsAbsent(params: CloseAttendanceParams): Promise<SaveResult> {
+  const teacher = await requireTeacher();
+  try {
+    await insertMissingAttendance({
+      date: params.date,
+      students: params.students,
+      status: '결석',
+      teacherId: teacher.id,
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error('출석 종료 일괄 저장 실패:', e);
+    return { ok: false, error: '출석 종료 처리에 실패했습니다. 다시 시도해 주세요.' };
   }
 }

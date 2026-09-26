@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 // 모바일: 하단 바텀시트, PC(sm 이상): 중앙 팝업. 반/날짜 선택 공용 오버레이.
+// document.body로 포털링한다 — 컨텍스트 바의 backdrop-blur(backdrop-filter)가 자손 fixed 요소의
+// 기준 박스를 뷰포트가 아닌 그 바 자신으로 바꿔서, 포털 없이는 시트가 바 안에 갇혀 잘려 보인다.
 export function Sheet({
   open,
   onClose,
@@ -25,7 +28,7 @@ export function Sheet({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
       role="dialog"
@@ -52,6 +55,7 @@ export function Sheet({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
