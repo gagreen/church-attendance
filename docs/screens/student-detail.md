@@ -45,7 +45,7 @@
 
 ## 프로필 메모 (`student_notes`)
 
-- **append-only 로그**로 취급한다 — 수정/삭제 UI를 두지 않는다. `student_notes` 테이블에 `updated_at`/삭제 관련 컬럼이 없고, "지속 특이사항이 시간에 따라 쌓이는 기록"이라는 테이블 설계 취지와 맞다. 잘못 쓴 메모를 고치고 싶으면 새 메모를 덧붙이는 방식으로 유도한다(예: "정정: ...").
+- **수정은 지원하지 않고 삭제만 지원**한다 — `student_notes` 테이블에 `updated_at` 컬럼이 없고 "지속 특이사항이 시간에 따라 쌓이는 기록"이라는 취지상 수정 UI는 두지 않는다. 잘못 쓴 메모는 삭제 후 다시 등록한다. 삭제는 확인 대화상자를 거치는 하드 삭제이며(되돌릴 수 없음), 작성자와 무관하게 쓰기 권한이 있는 교사·관리자면 누구나 지울 수 있다(과거 기록 수정 잠금 없음 원칙과 동일한 기조). DB 권한은 `0005_student_notes_delete.sql`에서 `delete`를 GRANT하고, 행 단위 허용 범위는 기존 RLS `student_notes_write`가 결정한다.
 - 정렬: `created_at` 내림차순(최신이 위).
 - 항목 표시: 작성일, 작성자 이름(`teachers.name` 조인), 내용.
 - 입력창은 **교사·관리자에게만 노출**한다(목사님은 조회 전용). RLS(`student_notes_write`)가 DB 레벨에서도 막아주지만, 프론트에서도 role 기준으로 입력창 자체를 렌더링하지 않는다.
@@ -55,7 +55,13 @@
 ```ts
 type AddStudentNoteParams = { studentId: string; note: string };
 ```
-insert만 한다 — update/delete 액션은 만들지 않는다.
+insert만 한다.
+
+`app/actions/students.ts` → `deleteStudentNote`
+```ts
+type DeleteStudentNoteParams = { noteId: string };
+```
+RLS로 막힌 행은 에러 없이 0건 삭제로 끝나므로, 삭제된 행이 없으면 실패로 처리한다. 수정(update) 액션은 만들지 않는다.
 
 ## 출석 이력 (`attendance`)
 
@@ -90,7 +96,7 @@ type StudentDetailResult = {
     isActive: boolean;
   };
   availableYears: number[]; // 이 학생의 기록이 존재하는 연도 목록(드롭다운용)
-  notes: { note: string; authorName: string; createdAt: string }[];
+  notes: { id: string; note: string; authorName: string; createdAt: string }[];
   attendanceHistory: {
     date: string;
     classId: string; // 인라인 수정 시 saveAttendanceStatus에 그대로 전달
@@ -107,7 +113,7 @@ type StudentDetailResult = {
 ## 권한
 
 - **조회**(학생 정보, 메모, 이력): 관리자 / 교사(접근 가능한 반 범위) / 목사님 모두 가능 — 기존 `students_select`, `student_notes_select`, `attendance_select` RLS 정책 그대로 적용.
-- **쓰기**(메모 추가, 출석 인라인 수정): 관리자 / 교사만. 목사님은 `student_notes_write`, `attendance_write` RLS에서 이미 제외되어 있으므로, 프론트에서도 role 기준으로 메모 입력창과 상태 버튼을 비활성화(또는 읽기 전용 텍스트로 대체)한다.
+- **쓰기**(메모 추가·삭제, 출석 인라인 수정): 관리자 / 교사만. 목사님은 `student_notes_write`, `attendance_write` RLS에서 이미 제외되어 있으므로, 프론트에서도 role 기준으로 메모 입력창과 상태 버튼을 비활성화(또는 읽기 전용 텍스트로 대체)한다.
 
 ## 에러/로딩 상태
 
@@ -118,5 +124,5 @@ type StudentDetailResult = {
 ## 이 화면에서 다루지 않는 것 (범위 밖)
 
 - 월별/반별 통계, 출석률, 통계 리포트 엑셀 내보내기 — P3.
-- `student_notes` 수정/삭제 — 현재 데이터 모델은 append-only 로그로 취급.
+- `student_notes` 수정 — 삭제 후 재등록으로 대체(삭제는 지원).
 - 비활성 학생으로의 진입 경로(학생 마스터 관리 화면) — P3.
