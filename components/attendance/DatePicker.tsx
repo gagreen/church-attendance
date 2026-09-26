@@ -108,7 +108,7 @@ export function DatePicker({ date, onChange }: { date: string; onChange: (date: 
                   cell.inMonth ? '' : 'text-zinc-300 dark:text-zinc-600',
                   sunday && cell.inMonth && !selected ? 'bg-red-50 dark:bg-red-950/30' : '',
                   selected
-                    ? 'bg-blue-600 font-semibold text-white'
+                    ? 'bg-sky-700 font-semibold text-white/95 dark:bg-sky-800 dark:text-sky-50'
                     : 'hover:bg-zinc-100 dark:hover:bg-zinc-800',
                 ].join(' ')}
               >

@@ -7,6 +7,7 @@ import { AttendanceStatusRow } from './AttendanceStatusRow';
 export function StudentRow({
   row,
   showClassTag,
+  showLateButton,
   saving,
   commentOpen,
   readOnly,
@@ -17,6 +18,7 @@ export function StudentRow({
 }: {
   row: AttendanceViewRow;
   showClassTag: boolean;
+  showLateButton: boolean;
   saving: boolean;
   commentOpen: boolean;
   readOnly: boolean;
@@ -28,8 +30,8 @@ export function StudentRow({
   return (
     <AttendanceStatusRow
       leading={
-        <div className="min-w-0 flex-1 sm:flex-none sm:basis-40">
-          <p className="text-xs text-zinc-400">
+        <div className="w-16 shrink-0 sm:w-40">
+          <p className="truncate text-xs text-zinc-400">
             {row.grade ?? '미지정'}
             {showClassTag ? ` · ${row.className}` : ''}
           </p>
@@ -42,6 +44,7 @@ export function StudentRow({
         </div>
       }
       status={row.status}
+      showLateButton={showLateButton}
       comment={row.comment}
       saving={saving}
       commentOpen={commentOpen}

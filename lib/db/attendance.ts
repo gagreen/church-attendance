@@ -81,6 +81,34 @@ export async function upsertAttendance(params: UpsertAttendanceParams): Promise<
   if (error) throw new Error(`attendance 저장 실패: ${error.message}`);
 }
 
+type InsertMissingAttendanceParams = {
+  date: string;
+  students: { studentId: string; classId: string }[];
+  status: AttendanceStatus;
+  teacherId: string;
+};
+
+// "출석 종료" 일괄 처리용: 해당 날짜에 아직 기록이 없는 학생만 status로 채운다. ON CONFLICT DO NOTHING
+// (ignoreDuplicates)이라 그 사이 다른 교사가 먼저 입력한 기록은 절대 덮어쓰지 않는다.
+export async function insertMissingAttendance(params: InsertMissingAttendanceParams): Promise<void> {
+  if (params.students.length === 0) return;
+  const supabase = await createClient();
+
+  const rows: TablesInsert<'attendance'>[] = params.students.map((s) => ({
+    date: params.date,
+    class_id: s.classId,
+    student_id: s.studentId,
+    status: params.status,
+    recorded_by: params.teacherId,
+    last_modified_by: params.teacherId,
+  }));
+
+  const { error } = await supabase
+    .from('attendance')
+    .upsert(rows, { onConflict: 'date,student_id', ignoreDuplicates: true });
+  if (error) throw new Error(`attendance 일괄 저장 실패: ${error.message}`);
+}
+
 // 이 학생의 기록이 존재하는 연도 목록(내림차순) — 학생 상세 화면의 연도 드롭다운/기본값 계산용.
 export async function listAttendanceYearsForStudent(studentId: string): Promise<number[]> {
   const supabase = await createClient();

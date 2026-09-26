@@ -1,7 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
-import type { TablesInsert } from '@/lib/database.types';
+import type { TablesInsert, TablesUpdate } from '@/lib/database.types';
+import { assertAffected } from '@/lib/db/errors';
+import type { Grade } from '@/lib/gradeOptions';
 
-export type Grade = '고3' | '고2' | '고1' | '중3' | '중2' | '중1';
+export type { Grade };
 
 // grade desc 순서(고3 → 중1). null(미지정)은 맨 아래.
 const GRADE_ORDER: readonly Grade[] = ['고3', '고2', '고1', '중3', '중2', '중1'];
@@ -97,16 +99,15 @@ export async function getStudentProfile(studentId: string): Promise<StudentProfi
   };
 }
 
-export type StudentNote = { note: string; authorName: string; createdAt: string };
+export type StudentNote = { id: string; note: string; authorName: string; createdAt: string };
 
-// student_notes는 append-only 로그다(docs/screens/student-detail.md) — 여기엔 update/delete를 두지 않는다.
-// created_at 내림차순(최신이 위).
+// created_at 내림차순(최신이 위). 수정은 지원하지 않고, 잘못 쓴 메모는 삭제 후 다시 등록한다.
 export async function listStudentNotes(studentId: string): Promise<StudentNote[]> {
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from('student_notes')
-    .select('note, created_at, created_by')
+    .select('id, note, created_at, created_by')
     .eq('student_id', studentId)
     .order('created_at', { ascending: false });
   if (error) throw new Error(`student_notes 조회 실패: ${error.message}`);
@@ -122,6 +123,7 @@ export async function listStudentNotes(studentId: string): Promise<StudentNote[]
   const nameById = new Map((teachers ?? []).map((t) => [t.id, t.name]));
 
   return data.map((n) => ({
+    id: n.id,
     note: n.note,
     authorName: nameById.get(n.created_by) ?? '알 수 없음',
     createdAt: n.created_at,
@@ -130,7 +132,6 @@ export async function listStudentNotes(studentId: string): Promise<StudentNote[]
 
 type AddStudentNoteParams = { studentId: string; note: string; teacherId: string };
 
-// insert만 한다 — update/delete는 만들지 않는다(append-only).
 export async function addStudentNote(params: AddStudentNoteParams): Promise<void> {
   const supabase = await createClient();
 
@@ -140,4 +141,97 @@ export async function addStudentNote(params: AddStudentNoteParams): Promise<void
     created_by: params.teacherId,
   } satisfies TablesInsert<'student_notes'>);
   if (error) throw new Error(`student_notes 저장 실패: ${error.message}`);
+}
+
+// RLS로 삭제 권한이 없는 행은 에러 없이 0건 삭제로 끝나므로, 실제 삭제된 행이 없으면 실패로 취급한다.
+export async function deleteStudentNote(noteId: string): Promise<void> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.from('student_notes').delete().eq('id', noteId).select('id');
+  if (error) throw new Error(`student_notes 삭제 실패: ${error.message}`);
+  if (!data || data.length === 0) throw new Error('student_notes 삭제 실패: 삭제된 행이 없습니다(권한 없음 또는 이미 삭제됨)');
+}
+
+// ---------------------------------------------------------------------------------------------
+// 마스터 관리(관리자 전용) — docs/screens/master-management.md
+// ---------------------------------------------------------------------------------------------
+
+export type StudentAdminRow = {
+  id: string;
+  name: string;
+  classId: string;
+  className: string;
+  grade: string | null;
+  isActive: boolean;
+  enrolledDate: string;
+};
+
+// 비활성 학생까지 포함한 전체 목록. 활성 학생이 먼저, 그 안에서 반(이름) → 학년 → 이름 순.
+export async function listStudentsForAdmin(): Promise<StudentAdminRow[]> {
+  const supabase = await createClient();
+
+  const [studentsRes, classesRes] = await Promise.all([
+    supabase.from('students').select('id, name, class_id, grade, is_active, enrolled_date'),
+    supabase.from('classes').select('id, name'),
+  ]);
+  if (studentsRes.error) throw new Error(`students 조회 실패: ${studentsRes.error.message}`);
+  if (classesRes.error) throw new Error(`classes 조회 실패: ${classesRes.error.message}`);
+
+  const classNameById = new Map((classesRes.data ?? []).map((c) => [c.id, c.name]));
+
+  return (studentsRes.data ?? [])
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      classId: s.class_id,
+      className: classNameById.get(s.class_id) ?? '',
+      grade: s.grade,
+      isActive: s.is_active,
+      enrolledDate: s.enrolled_date,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.isActive) - Number(a.isActive) ||
+        a.className.localeCompare(b.className, 'ko', { numeric: true }) ||
+        gradeRank(a.grade) - gradeRank(b.grade) ||
+        a.name.localeCompare(b.name, 'ko')
+    );
+}
+
+export async function insertStudent(params: {
+  name: string;
+  classId: string;
+  grade: Grade | null;
+  enrolledDate: string;
+}): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from('students').insert({
+    name: params.name,
+    class_id: params.classId,
+    grade: params.grade,
+    enrolled_date: params.enrolledDate,
+  } satisfies TablesInsert<'students'>);
+  if (error) throw new Error(`students 저장 실패: ${error.message}`);
+}
+
+// 반 이동(class_id 변경)은 과거 attendance.class_id를 건드리지 않는다 — 과거 기록은 "그 당시 반" 기준으로
+// 남아야 하므로 students 행만 바꾸면 된다(data-model-guide.md 반 이동 처리).
+export async function updateStudentRow(params: {
+  studentId: string;
+  name?: string;
+  classId?: string;
+  grade?: Grade | null;
+  isActive?: boolean;
+}): Promise<void> {
+  const supabase = await createClient();
+
+  const update: TablesUpdate<'students'> = {};
+  if (params.name !== undefined) update.name = params.name;
+  if (params.classId !== undefined) update.class_id = params.classId;
+  if (params.grade !== undefined) update.grade = params.grade;
+  if (params.isActive !== undefined) update.is_active = params.isActive;
+
+  const { data, error } = await supabase.from('students').update(update).eq('id', params.studentId).select('id');
+  if (error) throw new Error(`students 수정 실패: ${error.message}`);
+  assertAffected(data, 'students 수정');
 }

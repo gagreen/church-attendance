@@ -81,12 +81,43 @@ create table student_notes (
   created_at timestamptz not null default now()
 );
 
+-- 0008_teacher_attendance.sql: 교사 출석 (1행 = 1교사 × 1일). 학생 attendance와 섞지 않는다(통계 오염 방지).
+-- class_id는 두지 않는다(교사는 여러 반을 맡을 수 있고 "당시 담당 반"을 남길 실익이 없음).
+create table teacher_attendance (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  teacher_id uuid not null references teachers(id), -- 출석 대상 교사
+  status text not null check (status in ('출석', '지각', '결석', '공예배')),
+  comment text,
+  recorded_by uuid not null references teachers(id),
+  recorded_at timestamptz not null default now(),
+  last_modified_by uuid not null references teachers(id),
+  last_modified_at timestamptz not null default now(),
+  unique (date, teacher_id)
+);
+
 -- app_settings: 전역 설정 (단일 행. id는 항상 true)
 create table app_settings (
   id boolean primary key default true check (id),
   teachers_can_view_all boolean not null default true,
+  show_late_button boolean not null default true, -- 0007: 상태 버튼의 `지각` 표시 여부(표시 전용)
   updated_by uuid references teachers(id),
   updated_at timestamptz not null default now()
+);
+
+-- 0007_master_management.sql: 아직 로그인하지 않은 신규 교사 초대 대기열 (관리자만 RLS 접근)
+create table teacher_invites (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,            -- unique index는 lower(email) 기준
+  name text not null,
+  role text not null check (role in ('admin', 'teacher', 'pastor')),
+  invited_by uuid not null references teachers(id),
+  invited_at timestamptz not null default now()
+);
+create table teacher_invite_classes (
+  invite_id uuid not null references teacher_invites(id) on delete cascade,
+  class_id uuid not null references classes(id) on delete cascade,
+  primary key (invite_id, class_id)
 );
 ```
 
@@ -98,15 +129,18 @@ create table app_settings (
 
 - `attendance` unique `(date, student_id)`: 같은 학생이 같은 날 두 번 기록되는 것을 DB가 막는다. 저장 로직은 "있으면 update, 없으면 insert"가 아니라 `upsert(onConflict: 'date,student_id')`로 짠다 — 두 교사가 동시에 같은 학생·같은 날짜를 저장해도 경합 없이 하나로 수렴한다.
 - `attendance.recorded_by`/`last_modified_by`는 `teachers.id`(uuid, Supabase Auth 사용자 id와 동일)를 참조한다. 화면에 표시할 이름이 필요하면 조인해서 가져온다 — 별도 텍스트 컬럼으로 이름을 중복 저장하지 않는다.
+- `teacher_invites`: `teachers.id`가 `auth.users`를 참조해서 로그인 전에는 `teachers` 행을 만들 수 없으므로 두는 초대 대기열이다. 첫 구글 로그인 때 OAuth 콜백(`lib/auth.ts`의 `completeSignIn`)이 `claim_teacher_invite()`(security definer RPC)를 호출해 이메일이 일치하는 초대를 `teachers`/`teacher_classes`로 옮기고 초대를 지운다. 이미 `teachers`에 있는 사용자(비활성 포함)는 이 함수가 건드리지 않는다.
+- `teachers` 마지막 활성 관리자 보호: `teachers_guard_last_admin_trigger`가 활성 관리자를 0명으로 만드는 `role`/`is_active` 변경을 막는다(`last_active_admin` 예외).
+- `classes.name`은 `lower(btrim(name))` 기준으로 유일하다(`classes_name_key`, 비활성 반 포함).
 - `classes`에는 담당 교사 컬럼을 두지 않는다. "이 반 담당 교사가 누구인지"는 `teacher_classes` 조인으로 구한다.
 
 ### 인덱스
 
-`attendance(student_id, date desc)`(학생 상세의 출석 이력), `attendance(class_id, date)`(반별 조회), `students(class_id)`(반별 학생 목록·RLS 조인). `unique(date, student_id)`는 `student_id` 단독 조회를 커버하지 못해서 별도로 둔다.
+`teacher_attendance(teacher_id, date desc)`(교사별 이력, 0008). `attendance(student_id, date desc)`(학생 상세의 출석 이력), `attendance(class_id, date)`(반별 조회), `students(class_id)`(반별 학생 목록·RLS 조인). `unique(date, student_id)`는 `student_id` 단독 조회를 커버하지 못해서 별도로 둔다.
 
 ## RLS 정책
 
-기본 방침: `teachers.is_active = true`인 사용자만 무언가를 할 수 있다. `role='admin'`은 전체, `role='teacher'`는 `app_settings.teachers_can_view_all`이 켜져 있으면 전체 반, 꺼져 있으면 `teacher_classes`에 매핑된 반만 허용한다(조회·수정 동일). `role='pastor'`는 전체 조회만 가능하고 수정은 못 한다. 아래는 `0001_init.sql` + `0002_view_all_and_pastor.sql`을 합친 최종 상태다.
+기본 방침: `teachers.is_active = true`인 사용자만 무언가를 할 수 있다. `role='admin'`은 전체, `role='teacher'`는 `app_settings.teachers_can_view_all`이 켜져 있으면 전체 반, 꺼져 있으면 `teacher_classes`에 매핑된 반만 허용한다(조회·수정 동일). `role='pastor'`는 전체 조회만 가능하고 수정은 못 한다(단 `teacher_attendance`는 0008에서 쓰기를 허용한다). 아래는 `0001_init.sql` + `0002_view_all_and_pastor.sql`을 합친 최종 상태다.
 
 ```sql
 alter table teachers enable row level security;
@@ -116,6 +150,7 @@ alter table students enable row level security;
 alter table attendance enable row level security;
 alter table student_notes enable row level security;
 alter table app_settings enable row level security;
+alter table teacher_attendance enable row level security; -- 0008
 
 -- 헬퍼는 모두 security definer + search_path 고정: 헬퍼가 teachers를 조회할 때 teachers의 RLS 정책이
 -- 다시 헬퍼를 호출해 재귀하는 것을 막는다.
@@ -188,6 +223,17 @@ create policy student_notes_write on student_notes for all
     and can_access_class(students.class_id)
   ));
 
+-- teacher_attendance (0008): 활성 사용자 전원(교사·관리자·목사님)이 조회·입력·수정. 반에 종속되지 않으므로
+-- can_access_class와 무관하다. 대상은 활성 role='teacher'만(관리자·목사님 행 저장 거부).
+-- is_attendance_teacher는 security definer: teachers는 본인·관리자만 select 가능해서 RLS 안에서 직접 조회하면
+-- 다른 교사가 안 보여 항상 false가 된다. 감사 필드 트리거(teacher_attendance_set_audit_fields)는 0004와 같은 패턴.
+create policy teacher_attendance_select on teacher_attendance for select
+  using (current_role_name() is not null);
+create policy teacher_attendance_write on teacher_attendance for all
+  using (current_role_name() is not null)
+  with check (current_role_name() is not null and is_attendance_teacher(teacher_id));
+-- 교사 명단: list_attendance_teachers() (security definer) — 활성 role='teacher'의 id, name, 활성 담당 반 이름만 반환.
+
 -- teachers, teacher_classes: 관리자만 관리, 본인 행은 조회 가능(로그인 시 본인 role 확인용)
 create policy teachers_select_self on teachers for select
   using (id = auth.uid() or is_admin());
@@ -218,5 +264,5 @@ create policy teacher_classes_write on teacher_classes for all
 엑셀 산출물은 화면에 필요한 최소 컬럼만 내려주는 조회 함수와 별개로, 내보내기 전용 쿼리에서는 조인해서 사람이 읽을 수 있는 형태로 만든다.
 
 - **출석 기록 원본 내보내기 (P1)**: `attendance` × `students.name` × `classes.name` × `teachers.name`(recorded_by/last_modified_by) 조인. 컬럼 예시: 날짜, 반 이름, 학생 이름, 상태, 코멘트, 기록자, 최종수정자, 최종수정시각.
-- **통계 리포트 내보내기 (P3)**: 반별/학생별로 `status`를 `group by`해서 월간 집계(출석/지각/결석/공예배 횟수, 출석률)한 결과를 내보낸다. 집계는 Postgres 쪽에서 SQL로 계산하고(뷰 또는 함수), Next.js는 결과 행을 `exceljs`로 `.xlsx`로 변환하는 역할만 한다 — 통계 로직을 클라이언트나 애플리케이션 코드에 중복 구현하지 않는다.
+- **통계 리포트 내보내기 (P3)**: 반별/학생별로 `status`를 `group by`해서 월간 집계(출석/지각/결석/공예배 횟수, 출석률)한 결과를 내보낸다. 집계는 Postgres 함수(`class_month_stats`, `student_month_stats` — `0006_statistics_functions.sql`, 출석률 정의는 [statistics.md](screens/statistics.md#출석률-정의-중요--반드시-이-정의를-그대로-구현할-것))로 계산하고, Next.js는 결과 행을 `exceljs`로 `.xlsx`로 변환하는 역할만 한다 — 통계 로직을 클라이언트나 애플리케이션 코드에 중복 구현하지 않는다.
 - 내보내기 Route Handler는 `lib/xlsx.ts`의 공통 헬퍼(행 배열 → `.xlsx` 응답)를 통해서만 파일을 생성한다 — 화면마다 `exceljs` 호출 코드를 따로 짜지 않는다.

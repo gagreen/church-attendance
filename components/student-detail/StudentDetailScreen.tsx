@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   addStudentNote,
+  deleteStudentNote,
   getStudentDetail,
   type AttendanceHistoryRow as AttendanceHistoryRowData,
   type StudentDetailResult,
@@ -30,7 +31,11 @@ export function StudentDetailScreen({
   const [savingDates, setSavingDates] = useState<Set<string>>(new Set());
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
+  const [deletingNoteIds, setDeletingNoteIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
+  // state는 다음 렌더에야 반영되므로, 같은 틱에 연달아 들어오는 등록 요청(Enter 연타·IME 이중 keydown)을
+  // 막으려면 동기적으로 읽히는 ref 가드가 필요하다.
+  const noteSubmitting = useRef(false);
 
   const load = useCallback(
     (targetYear: number) => {
@@ -123,7 +128,8 @@ export function StudentDetailScreen({
 
   function handleAddNote() {
     const trimmed = noteDraft.trim();
-    if (trimmed === '') return;
+    if (trimmed === '' || noteSubmitting.current) return;
+    noteSubmitting.current = true;
     setNoteSaving(true);
     addStudentNote({ studentId, note: trimmed })
       .then((result) => {
@@ -135,7 +141,31 @@ export function StudentDetailScreen({
         }
       })
       .catch(() => showToast('저장에 실패했습니다. 다시 시도해 주세요.'))
-      .finally(() => setNoteSaving(false));
+      .finally(() => {
+        noteSubmitting.current = false;
+        setNoteSaving(false);
+      });
+  }
+
+  function handleDeleteNote(noteId: string) {
+    if (!window.confirm('이 메모를 삭제할까요? 삭제한 메모는 되돌릴 수 없습니다.')) return;
+    setDeletingNoteIds((current) => new Set(current).add(noteId));
+    deleteStudentNote({ noteId })
+      .then((result) => {
+        if (result.ok) {
+          setDetail((current) => ({ ...current, notes: current.notes.filter((n) => n.id !== noteId) }));
+        } else {
+          showToast(result.error);
+        }
+      })
+      .catch(() => showToast('삭제에 실패했습니다. 다시 시도해 주세요.'))
+      .finally(() => {
+        setDeletingNoteIds((current) => {
+          const next = new Set(current);
+          next.delete(noteId);
+          return next;
+        });
+      });
   }
 
   return (
@@ -175,7 +205,8 @@ export function StudentDetailScreen({
               value={noteDraft}
               onChange={(e) => setNoteDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddNote();
+                // 한글 등 IME 조합 중 Enter는 조합 확정용이라 제출로 취급하지 않는다(확정 시 keydown이 한 번 더 발생함).
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddNote();
               }}
               placeholder="새 메모 추가..."
               className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -184,7 +215,7 @@ export function StudentDetailScreen({
               type="button"
               onClick={handleAddNote}
               disabled={noteSaving || noteDraft.trim() === ''}
-              className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-sky-700 px-3 py-2 text-sm font-medium text-white/95 transition hover:bg-sky-800 dark:bg-sky-800 dark:text-sky-50 dark:hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               등록
             </button>
@@ -195,12 +226,24 @@ export function StudentDetailScreen({
           <p className="text-sm text-zinc-400">등록된 메모가 없습니다.</p>
         ) : (
           <ul className="flex flex-col gap-3">
-            {detail.notes.map((n, i) => (
-              <li key={i} className="text-sm">
-                <p className="text-xs text-zinc-400">
-                  {formatDateDotted(n.createdAt)} · {n.authorName}
-                </p>
-                <p className="whitespace-pre-wrap">{n.note}</p>
+            {detail.notes.map((n) => (
+              <li key={n.id} className="flex items-start justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <p className="text-xs text-zinc-400">
+                    {formatDateDotted(n.createdAt)} · {n.authorName}
+                  </p>
+                  <p className="whitespace-pre-wrap break-words">{n.note}</p>
+                </div>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteNote(n.id)}
+                    disabled={deletingNoteIds.has(n.id)}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs text-zinc-500 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30"
+                  >
+                    {deletingNoteIds.has(n.id) ? '삭제 중…' : '삭제'}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -223,8 +266,9 @@ export function StudentDetailScreen({
           </select>
         </div>
         <p className="mb-3 text-xs text-zinc-500">
-          출석 {detail.summary.출석} · 지각 {detail.summary.지각} · 결석 {detail.summary.결석} · 공예배{' '}
-          {detail.summary.공예배}
+          출석 {detail.summary.출석}
+          {(detail.showLateButton || detail.summary.지각 > 0) && <> · 지각 {detail.summary.지각}</>} · 결석{' '}
+          {detail.summary.결석} · 공예배 {detail.summary.공예배}
         </p>
 
         {loadState === 'error' && (
@@ -250,11 +294,12 @@ export function StudentDetailScreen({
               <AttendanceStatusRow
                 key={row.date}
                 leading={
-                  <p className="w-24 shrink-0 text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                  <p className="w-[5.5rem] shrink-0 text-xs font-medium text-zinc-600 sm:w-24 sm:text-sm dark:text-zinc-300">
                     {formatDateLabel(row.date)}
                   </p>
                 }
                 status={row.status}
+                showLateButton={detail.showLateButton}
                 comment={row.comment}
                 saving={savingDates.has(row.date)}
                 commentOpen={commentOpenDates.has(row.date)}

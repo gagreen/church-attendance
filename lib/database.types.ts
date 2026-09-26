@@ -42,18 +42,21 @@ export type Database = {
       app_settings: {
         Row: {
           id: boolean
+          show_late_button: boolean
           teachers_can_view_all: boolean
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           id?: boolean
+          show_late_button?: boolean
           teachers_can_view_all?: boolean
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           id?: boolean
+          show_late_button?: boolean
           teachers_can_view_all?: boolean
           updated_at?: string
           updated_by?: string | null
@@ -234,6 +237,64 @@ export type Database = {
           },
         ]
       }
+      teacher_attendance: {
+        Row: {
+          comment: string | null
+          date: string
+          id: string
+          last_modified_at: string
+          last_modified_by: string
+          recorded_at: string
+          recorded_by: string
+          status: string
+          teacher_id: string
+        }
+        Insert: {
+          comment?: string | null
+          date: string
+          id?: string
+          last_modified_at?: string
+          last_modified_by: string
+          recorded_at?: string
+          recorded_by: string
+          status: string
+          teacher_id: string
+        }
+        Update: {
+          comment?: string | null
+          date?: string
+          id?: string
+          last_modified_at?: string
+          last_modified_by?: string
+          recorded_at?: string
+          recorded_by?: string
+          status?: string
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teacher_attendance_last_modified_by_fkey"
+            columns: ["last_modified_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "teacher_attendance_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "teacher_attendance_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       teacher_classes: {
         Row: {
           class_id: string
@@ -258,6 +319,71 @@ export type Database = {
           {
             foreignKeyName: "teacher_classes_teacher_id_fkey"
             columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teacher_invite_classes: {
+        Row: {
+          class_id: string
+          invite_id: string
+        }
+        Insert: {
+          class_id: string
+          invite_id: string
+        }
+        Update: {
+          class_id?: string
+          invite_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teacher_invite_classes_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "teacher_invite_classes_invite_id_fkey"
+            columns: ["invite_id"]
+            isOneToOne: false
+            referencedRelation: "teacher_invites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teacher_invites: {
+        Row: {
+          email: string
+          id: string
+          invited_at: string
+          invited_by: string
+          name: string
+          role: string
+        }
+        Insert: {
+          email: string
+          id?: string
+          invited_at?: string
+          invited_by: string
+          name: string
+          role: string
+        }
+        Update: {
+          email?: string
+          id?: string
+          invited_at?: string
+          invited_by?: string
+          name?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teacher_invites_invited_by_fkey"
+            columns: ["invited_by"]
             isOneToOne: false
             referencedRelation: "teachers"
             referencedColumns: ["id"]
@@ -297,9 +423,50 @@ export type Database = {
     }
     Functions: {
       can_access_class: { Args: { target_class_id: string }; Returns: boolean }
+      claim_teacher_invite: { Args: never; Returns: boolean }
+      class_month_stats: {
+        Args: { p_month: string }
+        Returns: {
+          absent_count: number
+          class_id: string
+          class_name: string
+          expected_slots: number
+          late_count: number
+          present_count: number
+          present_rate: number
+          recorded_count: number
+          worship_count: number
+        }[]
+      }
       current_role_name: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      is_attendance_teacher: {
+        Args: { target_teacher_id: string }
+        Returns: boolean
+      }
       is_pastor: { Args: never; Returns: boolean }
+      list_attendance_teachers: {
+        Args: never
+        Returns: {
+          class_names: string[]
+          id: string
+          name: string
+        }[]
+      }
+      student_month_stats: {
+        Args: { p_class_id: string; p_month: string }
+        Returns: {
+          absent_count: number
+          grade: string
+          late_count: number
+          present_count: number
+          present_rate: number
+          recorded_count: number
+          student_id: string
+          student_name: string
+          worship_count: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
