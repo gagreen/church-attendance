@@ -70,7 +70,7 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 | 테이블            | 역할                                        | 주요 컬럼                                                                                                     |
 | ----------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `classes`         | 반 마스터                                   | id, name, is_active, created_at                                                                               |
-| `students`        | 학생 마스터                                 | id, name, class_id, enrolled_date, is_active                                                                  |
+| `students`        | 학생 마스터                                 | id, name, class_id, enrolled_date, is_active, grade                                                           |
 | `attendance`      | 출석 기록 (1행 = 1명×1일)                   | id, date, class_id, student_id, status, comment, recorded_by, recorded_at, last_modified_by, last_modified_at |
 | `student_notes`   | 학생 프로필 메모 (날짜 무관, 지속 특이사항) | id, student_id, note, created_by, created_at                                                                  |
 | `teachers`        | 교사 마스터 · 로그인 화이트리스트           | id (auth.users.id), email, name, role, is_active                                                              |
@@ -96,7 +96,7 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 ## 화면 흐름
 
-로그인(Google 계정) → 반 선택(교사는 담당 반만, 관리자는 전체+필터) → 날짜 선택(기본값 오늘, 캘린더로 과거 이동) → 출석 입력(학생 리스트 + 상태 버튼 + 당일 코멘트) → 학생 상세(출석 이력 + 프로필 메모 + 통계)
+로그인(Google 계정) → 출석 입력(반/날짜 선택은 별도 화면 없이 이 화면 상단 컨텍스트 바에서 처리 — 교사는 담당 반만, 관리자는 전체+필터, 날짜 기본값은 이번 주 일요일. 학생 리스트 + 상태 버튼 + 당일 코멘트. 상세 설계: [docs/screens/attendance-input.md](docs/screens/attendance-input.md)) → 학생 상세(출석 이력 + 프로필 메모, 상세 설계: [docs/screens/student-detail.md](docs/screens/student-detail.md). 반별/학생별 월간 통계는 별도로 P3에서 다룬다)
 
 엑셀 내보내기는 별도 화면이 아니라 각 조회 화면(출석 입력 목록, 통계)에 "엑셀로 내보내기" 버튼으로 곁들인다 — 서버(Route Handler)에서 `exceljs`로 `.xlsx`를 생성해 다운로드시킨다 (SheetJS `xlsx`는 npm 배포판에 미패치 취약점이 있어 사용하지 않는다).
 
@@ -120,9 +120,9 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 작업 순서나 범위가 불명확할 때 이 우선순위를 따른다.
 
-1. **P1 — 핵심 출석 기능**: 로그인·권한, 반별 출석 입력/저장, 반별 필터, 과거 날짜 수정, 출석 기록 엑셀 내보내기(원본 그대로)
+1. **P1 — 핵심 출석 기능**: 로그인·권한, 반별 출석 입력/저장, 반별 필터, 과거 날짜 수정
 2. **P2 — 코멘트 · 학생 상세**: 당일 코멘트, `student_notes`, 학생 상세 화면
-3. **P3 — 통계 · 관리**: 반별/학생별 월간 출석률, 통계 리포트 엑셀 내보내기, 교사·학생 마스터 관리 화면
+3. **P3 — 통계 · 관리 · 내보내기**: 반별/학생별 월간 출석률(상세 설계: [docs/screens/statistics.md](docs/screens/statistics.md)), 교사·학생·반 마스터 관리 화면(상세 설계: [docs/screens/master-management.md](docs/screens/master-management.md)), 엑셀 내보내기(출석 기록 원본 + 통계 리포트) — 엑셀 내보내기는 원래 P1이었으나 P3 화면들과 함께 한 번에 설계하기로 변경. 반 마스터 관리는 원래 로드맵엔 없었으나 교사·학생 마스터 관리 화면에 탭으로 함께 포함하기로 추가.
 
 P3 범위(통계, 마스터 관리 UI)를 P1 작업 중에 먼저 구현하려 하지 말 것 — 순서를 건너뛰어야 할 이유가 있다면 먼저 확인한다.
 
