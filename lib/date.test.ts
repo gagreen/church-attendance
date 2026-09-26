@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, calendarMonthGrid, formatDateDotted, formatDateLabel, isSunday, sundayOfWeek } from './date';
+import {
+  addDays,
+  addMonths,
+  calendarMonthGrid,
+  formatDateDotted,
+  formatDateLabel,
+  formatMonthLabel,
+  isSunday,
+  isValidMonth,
+  sundayOfWeek,
+} from './date';
 
 describe('sundayOfWeek', () => {
   it('오늘이 일요일이면 그대로 반환', () => {
@@ -60,5 +70,33 @@ describe('calendarMonthGrid', () => {
     const grid = calendarMonthGrid(2026, 9);
     expect(grid[0].inMonth).toBe(false); // 9/1이 화요일이라 앞에 8월 날짜가 채워짐
     expect(grid[grid.length - 1].date > '2026-09-30').toBe(true);
+  });
+});
+
+describe('isValidMonth', () => {
+  it('YYYY-MM 형식만 허용한다', () => {
+    expect(isValidMonth('2026-09')).toBe(true);
+    expect(isValidMonth('2026-12')).toBe(true);
+    expect(isValidMonth('2026-13')).toBe(false);
+    expect(isValidMonth('2026-00')).toBe(false);
+    expect(isValidMonth('2026-9')).toBe(false);
+    expect(isValidMonth('2026-09-01')).toBe(false);
+    expect(isValidMonth('')).toBe(false);
+  });
+});
+
+describe('addMonths', () => {
+  it('연도 경계를 넘어 이동한다', () => {
+    expect(addMonths('2026-12', 1)).toBe('2027-01');
+    expect(addMonths('2026-01', -1)).toBe('2025-12');
+    expect(addMonths('2026-09', 0)).toBe('2026-09');
+    expect(addMonths('2026-09', 14)).toBe('2027-11');
+  });
+});
+
+describe('formatMonthLabel', () => {
+  it('앞자리 0 없이 표기한다', () => {
+    expect(formatMonthLabel('2026-09')).toBe('2026년 9월');
+    expect(formatMonthLabel('2026-12')).toBe('2026년 12월');
   });
 });

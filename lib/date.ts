@@ -34,6 +34,12 @@ export function addDays(dateStr: string, days: number): string {
   return toDateStr(date);
 }
 
+// 'YYYY-MM-DD' 형식이면서 실제로 존재하는 날짜인지(예: 2026-02-30은 false).
+export function isValidDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return toDateStr(toUtcDate(value)) === value;
+}
+
 export function isSunday(dateStr: string): boolean {
   return toUtcDate(dateStr).getUTCDay() === 0;
 }
@@ -61,4 +67,26 @@ export function calendarMonthGrid(year: number, month: number): { date: string; 
     d.setUTCDate(gridStart.getUTCDate() + i);
     return { date: toDateStr(d), inMonth: d.getUTCMonth() === month - 1 };
   });
+}
+
+// 월은 'YYYY-MM' 문자열로 다룬다(통계 화면의 월 선택값).
+const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+export function isValidMonth(value: string): boolean {
+  return MONTH_PATTERN.test(value);
+}
+
+export function currentMonthInKST(): string {
+  return todayInKST().slice(0, 7);
+}
+
+export function addMonths(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return toDateStr(date).slice(0, 7);
+}
+
+export function formatMonthLabel(month: string): string {
+  const [y, m] = month.split('-');
+  return `${y}년 ${Number(m)}월`;
 }
