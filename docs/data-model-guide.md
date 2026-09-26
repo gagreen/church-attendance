@@ -53,7 +53,8 @@ create table students (
   class_id uuid not null references classes(id),
   enrolled_date date not null default current_date,
   is_active boolean not null default true,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  grade text check (grade in ('중1', '중2', '중3', '고1', '고2', '고3'))
 );
 
 -- attendance: 출석 기록 (1행 = 1명 × 1일)
@@ -92,6 +93,7 @@ create table app_settings (
 ### 컬럼 설명이 필요한 부분
 
 - `teachers.role`: `admin`(전체 조회·수정 + 마스터 관리), `teacher`(담당 반, 또는 `app_settings.teachers_can_view_all`이 켜져 있으면 전체 반 조회·수정), `pastor`(목사님 — 전체 조회 전용, 수정 불가). 로그인 화이트리스트가 `teachers` 하나이므로 목사님도 이 테이블에 등록한다.
+- `students.grade`: 중/고등부 학년(`중1`/`중2`/`중3`/`고1`/`고2`/`고3`)을 나타내는 학생 개인 속성이다. `classes`(반)와는 별개 — 반 이름이 곧 학년을 뜻하지 않을 수 있으므로 통계·필터링(예: "고3만 모아보기")에 쓰기 위해 학생마다 직접 갖는다. 기존 행의 값을 알 수 없어 `0003_add_student_grade.sql`에서 nullable로 추가했다 — 마이그레이션 적용 후 관리자가 학생 마스터 화면(또는 SQL)에서 채워 넣어야 한다.
 - `app_settings.teachers_can_view_all`: 전체 교사 일괄 스위치. `true`(기본값)면 모든 교사가 모든 반의 학생·출석·`student_notes`·`attendance.comment`를 조회하고 수정할 수 있다. 관리자가 `false`로 끄면 `teacher_classes`에 매핑된 담당 반만 허용된다. 읽기와 쓰기 권한은 분리하지 않는다. 교사별 개별 설정은 두지 않는다. 판단은 RLS(`can_access_class`)가 한 곳에서 하므로 앱 코드는 스위치 값을 따로 검사하지 않는다(메뉴 노출 여부 등 UI 분기에만 참고).
 
 - `attendance` unique `(date, student_id)`: 같은 학생이 같은 날 두 번 기록되는 것을 DB가 막는다. 저장 로직은 "있으면 update, 없으면 insert"가 아니라 `upsert(onConflict: 'date,student_id')`로 짠다 — 두 교사가 동시에 같은 학생·같은 날짜를 저장해도 경합 없이 하나로 수렴한다.

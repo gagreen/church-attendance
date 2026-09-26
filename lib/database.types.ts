@@ -201,6 +201,7 @@ export type Database = {
           class_id: string
           created_at: string
           enrolled_date: string
+          grade: string | null
           id: string
           is_active: boolean
           name: string
@@ -209,6 +210,7 @@ export type Database = {
           class_id: string
           created_at?: string
           enrolled_date?: string
+          grade?: string | null
           id?: string
           is_active?: boolean
           name: string
@@ -217,6 +219,7 @@ export type Database = {
           class_id?: string
           created_at?: string
           enrolled_date?: string
+          grade?: string | null
           id?: string
           is_active?: boolean
           name?: string
