@@ -34,6 +34,14 @@ export async function requireTeacher(): Promise<Teacher> {
   redirect(access.status === 'forbidden' ? '/login?error=not_allowed' : '/login');
 }
 
+// 마스터 관리 화면·액션 전용 가드. 관리자가 아니면 홈으로 보낸다(로그인은 되어 있으므로 로그인 화면이 아니다).
+// DB 쪽 RLS(teachers_write 등)가 같은 조건을 한 번 더 강제하지만, 화면은 애초에 열리지 않게 한다.
+export async function requireAdmin(): Promise<Teacher> {
+  const teacher = await requireTeacher();
+  if (teacher.role !== 'admin') redirect('/');
+  return teacher;
+}
+
 // OAuth 콜백 URL의 기준이 되는 현재 사이트 origin. 로컬·Vercel(프로덕션/프리뷰)에서 코드 변경 없이 동작하도록
 // 요청 헤더에서 구한다. 이 값은 Supabase Auth의 Redirect URLs 허용 목록에 등록되어 있어야 한다.
 async function getOrigin(): Promise<string> {
@@ -80,10 +88,25 @@ export async function completeSignIn(code: string): Promise<{ ok: true } | { ok:
   const access = await getAccess();
   if (access.status === 'ok') return { ok: true };
   if (access.status === 'forbidden') {
+    // 화이트리스트에 없더라도 관리자가 이메일로 미리 초대해 둔 사람이면 여기서 teachers로 등록된다.
+    if (await claimInvite()) return { ok: true };
     await supabase.auth.signOut({ scope: 'local' });
     return { ok: false, reason: 'not_allowed' };
   }
   return { ok: false, reason: 'auth_failed' };
+}
+
+// 초대 수락(claim_teacher_invite RPC): 로그인한 이메일과 일치하는 초대가 있으면 teachers에 등록한다.
+// getAccess()는 요청당 캐시라 이 시점의 결과가 stale이므로, 반환값(true)만 신뢰하고 다시 조회하지 않는다.
+// 실패(RPC 오류·이메일 유니크 충돌 등)는 "초대 없음"과 같이 접근 차단으로 처리하되 원인은 로그로 남긴다.
+async function claimInvite(): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('claim_teacher_invite');
+  if (error) {
+    console.error('초대 수락 실패:', error.message);
+    return false;
+  }
+  return data === true;
 }
 
 export async function signOutCurrentUser(): Promise<void> {

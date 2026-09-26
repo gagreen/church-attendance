@@ -1,6 +1,8 @@
 # 화면 설계 — 마스터 관리 (교사 · 학생 · 반)
 
-[CLAUDE.md](../../CLAUDE.md) 로드맵 P3 "교사·학생 마스터 관리 화면" 상세 설계. 반(classes) 마스터 관리도 이 화면에 함께 포함한다(원래 로드맵엔 빠져 있었으나, 별도 화면을 새로 만들기보다 같은 관리자 화면 안에 탭으로 묶는 것이 합리적이라고 판단). 상단 내비게이션(☰) 메뉴에서 관리자에게만 보이는 "마스터 관리" 항목으로 진입한다.
+[CLAUDE.md](../../CLAUDE.md) 로드맵 P3 "교사·학생 마스터 관리 화면" 상세 설계. 반(classes) 마스터 관리도 이 화면에 함께 포함한다(원래 로드맵엔 빠져 있었으나, 별도 화면을 새로 만들기보다 같은 관리자 화면 안에 탭으로 묶는 것이 합리적이라고 판단). 상단 내비게이션의 관리자 전용 "설정" 항목(`/settings`)으로 진입한다(구현: [app/settings/page.tsx](../../app/settings/page.tsx), [components/settings/](../../components/settings/)).
+
+> **구현 상태**: 화면·Server Action·마이그레이션(`0007_master_management.sql`)·초대 수락 로직(OAuth 콜백)·`show_late_button` 반영까지 구현했다. 마이그레이션은 프로덕션에 `supabase db push` 전까지 미적용이다. 설계 대비 추가한 것: 교사 수정에서 **역할 변경**, 학생 수정에서 **이름 변경**(오타 정정), 마지막 활성 관리자 보호(DB 트리거).
 
 ## 화면 목적 & 권한
 
@@ -25,6 +27,7 @@
 ├─────────────────────────────────────┤
 │ 전역 설정                             │
 │ 교사 전체보기 허용        [켜짐 ▾]      │  ← app_settings.teachers_can_view_all
+│ 지각 버튼 표시            [켜짐 ▾]      │  ← app_settings.show_late_button
 └─────────────────────────────────────┘
 ```
 
@@ -39,7 +42,7 @@
 
 `teachers.id`가 `auth.users(id)`를 참조하는 `not null` FK라서, 그 사람이 구글 로그인을 최소 한 번 시도해 `auth.users`에 id가 생기기 전에는 `teachers` row를 만들 수 없다. 그래서 "이메일만 먼저 등록 → 로그인 시 자동 활성화"하는 초대 흐름을 둔다.
 
-**필요한 스키마 변경(신규 마이그레이션 필요, 아직 작성 안 됨)**
+**스키마 변경 (`0007_master_management.sql`에 반영됨)**
 
 ```sql
 -- teacher_invites: 아직 로그인하지 않은 신규 교사 초대 대기열
@@ -69,7 +72,7 @@ create table teacher_invite_classes (
    - `teachers`에 이 `auth.users.id`가 이미 있으면 기존과 동일하게 통과.
    - 없으면 로그인한 이메일로 `teacher_invites`를 조회. 매칭되는 초대가 있으면 트랜잭션으로 `teachers`에 새 row를 만들고(`id`=방금 로그인한 `auth.users.id`, 나머지는 초대 정보로 채움, `is_active=true`), `teacher_invite_classes` 내용을 `teacher_classes`로 옮기고, 해당 `teacher_invites` row를 삭제한다.
    - 매칭되는 초대도 없으면 기존과 동일하게 접근 차단.
-   - 이 로직 변경은 별도 구현 작업(콜백 코드 수정 + 마이그레이션 적용)으로 진행하고, 이 화면 자체의 프론트 작업과는 분리해서 다룬다.
+   - 구현: `claim_teacher_invite()` RPC(security definer, 0007)를 `completeSignIn`이 호출한다. 함수는 본인(`auth.uid()`)의 확인된 이메일과 일치하는 초대 1건만 처리하고, 이미 `teachers`에 있는 사용자(비활성 포함)는 건드리지 않는다.
 3. 아직 로그인하지 않은 초대는 "초대 대기 중" 섹션에 별도로 보여주고, 관리자가 "초대 취소"로 `teacher_invites`에서 삭제할 수 있다.
 
 ### 데이터 계약
@@ -87,9 +90,11 @@ type CancelInviteParams = { inviteId: string };
 type UpdateTeacherParams = {
   teacherId: string;
   isActive?: boolean;
+  role?: "admin" | "teacher" | "pastor"; // 구현 시 추가
   classIds?: string[];
 };
 type SetTeachersCanViewAllParams = { value: boolean };
+type SetShowLateButtonParams = { value: boolean };
 ```
 
 ## 학생 탭
@@ -113,6 +118,7 @@ type CreateStudentParams = {
 };
 type UpdateStudentParams = {
   studentId: string;
+  name?: string; // 구현 시 추가(오타 정정)
   classId?: string;
   grade?: string | null;
   isActive?: boolean;
@@ -136,8 +142,30 @@ type UpdateClassParams = { classId: string; name?: string; isActive?: boolean };
 
 ## 전역 설정
 
-- `app_settings.teachers_can_view_all` 토글 — 교사 탭 하단(또는 화면 최하단)에 배치. 관리자만 변경 가능(`app_settings_update` RLS).
-- 변경 시 `updated_by`/`updated_at` 갱신.
+`app_settings`(단일 행)의 값을 관리자가 바꾸는 영역이다. 교사 탭 하단(또는 화면 최하단)에 배치하고, 관리자만 변경 가능(`app_settings_update` RLS). 변경 시 `updated_by`/`updated_at`을 갱신한다. 각 항목은 토글 즉시 저장하고, 실패하면 토글을 이전 값으로 되돌리며 토스트로 에러를 보여준다.
+
+| 설정 | 컬럼 | 기본값 | 효과 |
+| --- | --- | --- | --- |
+| 교사 전체보기 허용 | `teachers_can_view_all` | 켜짐 | 끄면 교사는 `teacher_classes`에 매핑된 담당 반만 조회·수정 |
+| 지각 버튼 표시 | `show_late_button` (신규) | 켜짐 | 끄면 출석 입력·학생 상세의 상태 버튼에서 `지각`이 렌더링되지 않음 |
+
+### 지각 버튼 표시 (`show_late_button`)
+
+지각을 구분해서 기록하지 않는 운영 방식을 위해, 상태 버튼 4개 중 `지각`을 화면에서 숨길 수 있는 표시 전용 설정이다.
+
+**스키마 변경 (`0007_master_management.sql`에 반영됨)**
+```sql
+alter table app_settings add column show_late_button boolean not null default true;
+```
+- 기존 `app_settings_select`(활성 사용자 조회)/`app_settings_update`(관리자만 수정) 정책이 그대로 적용되므로 정책 추가는 필요 없다. 타입은 `supabase gen types typescript`로 재생성한다.
+
+**동작 규칙**
+- **표시만 제어한다.** `attendance.status`의 `check` 제약(4종 고정)은 그대로 두고, Server Action(`saveAttendanceStatus`)에서도 `지각` 저장을 막지 않는다. 화면을 열어둔 채 설정이 바뀐 오래된 탭에서 `지각`이 저장될 수 있지만 데이터 정합성에는 문제가 없다.
+- **이미 `지각`으로 저장된 기록은 숨기지 않는다.** 설정을 꺼도 과거·기존 기록이 사라지거나 `미체크`처럼 보이면 안 되므로, 행의 현재 상태가 `지각`이면 그 행에 한해 `지각` 버튼을 선택된 상태로 계속 렌더링한다(다른 상태로 바꾸면 그 행에서도 사라진다). 새로 `지각`을 선택하는 것만 불가능해진다.
+- 상태 버튼 렌더링은 출석 입력 화면과 학생 상세 화면이 공유하는 컴포넌트([components/attendance/AttendanceStatusRow.tsx](../../components/attendance/AttendanceStatusRow.tsx))의 `STATUS_ORDER`에서 한 번만 처리한다 — 화면별로 필터링 로직을 따로 짜지 않는다. 설정값은 화면 조회 시 서버에서 읽어 prop으로 내려준다.
+- 버튼이 3개가 되면 나머지 버튼이 한 줄을 균등 분할한다(레이아웃 재조정 불필요).
+- **통계·엑셀은 영향받지 않는다.** 이미 쌓인 `지각` 기록이 있고 출석률 분자에도 포함되므로 집계 정의와 `지각` 컬럼은 그대로 둔다(끈 이후의 달은 `지각`이 0으로 나올 뿐이다).
+- 요약 바(출석 입력 화면)의 `지각 n` 항목도 표시를 끄면 숨긴다. 단, 그날 실제로 `지각` 기록이 1건 이상 있으면 숫자가 누락되지 않도록 계속 보여준다.
 
 ## 에러/로딩 상태
 
@@ -147,4 +175,4 @@ type UpdateClassParams = { classId: string; name?: string; isActive?: boolean };
 ## 이 화면에서 다루지 않는 것 (범위 밖)
 
 - 교사가 학생/반 마스터 데이터를 직접 등록하는 권한 — [CLAUDE.md](../../CLAUDE.md) 특이사항에 "미정"으로 남아 있음, 이 화면은 관리자 전용으로만 설계했다. 나중에 교사 권한이 열리면 화면 재검토 필요.
-- 교사 역할 자체를 `admin`으로 바꾸는 것과 `is_active` 토글은 있지만, "관리자가 자기 자신을 비활성화"하는 등의 예외 케이스 가드는 구현 단계에서 별도로 챙긴다(마지막 활성 관리자가 0명이 되는 상황 방지 등).
+- 예외 케이스 가드: 마지막 활성 관리자가 0명이 되는 변경(비활성화·강등)은 DB 트리거가 막고 화면은 "활성 관리자는 최소 1명이 있어야 합니다"로 안내한다. 본인 계정을 비활성화/강등할 때는 확인창을 띄운다.
