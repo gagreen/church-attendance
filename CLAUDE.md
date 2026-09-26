@@ -8,7 +8,14 @@
 교회 주일학교용 출석 관리 웹앱. 반 6개 · 학생 20명 · 교사 6~8명 규모, 비상업적(교회 내부용) 운영.
 **운영비 0원**이 설계의 최우선 제약이며, Next.js(App Router, TypeScript) + Supabase(Postgres, Auth) + Vercel 조합으로 각 서비스의 무료 티어만으로 구축한다.
 
-현재 상태: 스택 전환 결정 완료 — 기존에는 Google Apps Script + Google Sheet로 설계했으나, "구조화된 관계형 DB를 쓰고 싶다"는 이유로 Next.js + Supabase + Vercel로 전환했다. Next.js 프로젝트 스캐폴딩, git 저장소 초기화, Supabase 프로젝트 생성(리전 `ap-northeast-2`)과 초기 마이그레이션(`supabase/migrations/0001_init.sql`) 적용까지 완료했다. 첫 git 커밋(`main` 브랜치)도 끝났다. 로그인 화면·OAuth 콜백·화이트리스트 검사 코드는 구현되었다(설정 절차: [docs/auth-setup.md](docs/auth-setup.md)). 아직 안 된 것: Google Cloud/Supabase 콘솔에서 Google OAuth 프로바이더 연결(수동 작업), 출석 화면 실제 구현, Vercel 배포 연결. 이 문서와 `docs/data-model-guide.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
+현재 상태: Next.js + Supabase + Vercel, 앱 대부분이 구현되어 있다. Supabase 프로젝트(리전 `ap-northeast-2`)는 생성·연결되어 있고 GitHub(`gagreen/church-attendance`) 저장소로 관리한다.
+
+- **구현 완료**: 로그인(Google OAuth·콜백·화이트리스트, 설정 절차 [docs/auth-setup.md](docs/auth-setup.md)), 출석 입력 화면(`/`), 학생 상세(`/students/[id]`), 통계(`/statistics`)와 통계 엑셀 내보내기(`/statistics/export`), 교사 전체 조회 스위치.
+- **마스터 관리(설정) 화면 구현 완료**: `/settings`(관리자 전용, 상단 메뉴의 "설정") — 교사·학생·반 탭, 교사 초대(첫 로그인 시 자동 활성화), 전역 설정(`teachers_can_view_all`, `show_late_button`). 마이그레이션 `0007`이 필요하다. 설계: [docs/screens/master-management.md](docs/screens/master-management.md).
+- **교사 출석 구현 완료**: 출석 입력 화면(`/`)의 `학생 | 교사` 탭에서 교사(`role='teacher'`) 출석을 기록한다. 마이그레이션 `0008`이 필요하다. 설계: [docs/screens/teacher-attendance.md](docs/screens/teacher-attendance.md).
+- **아직 안 된 것**: 출석 기록 원본 엑셀 내보내기(통계 리포트만 구현됨), 교사 출석의 통계·엑셀·이력 화면, Vercel 배포 연결(`.vercel` 없음), 마이그레이션 `0007`·`0008`의 프로덕션 적용(`supabase db push`; `0001`~`0006`은 적용됨), `0008` 적용 후 `lib/database.types.ts` 재생성(현재 `teacher_attendance` 타입은 수기 추가분).
+
+이 문서와 `docs/data-model-guide.md`, `docs/screens/*.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
 
 이 제약(운영비 0원, 비상업적 무료 티어 내 운영)을 어기는 방향(유료 플랜 필수, 별도 유료 서버 등)으로 자의적으로 확장하지 말 것.
 
@@ -32,34 +39,37 @@ Supabase Postgres (관리형 DB)
 
 ## 개발 환경 설정
 
-- 로컬 개발은 Node.js + Next.js 개발 서버, DB는 Supabase CLI의 로컬 개발 환경(`supabase start`, Docker 기반)을 전제로 한다. 처음 셋업할 때:
-  1. `npx create-next-app@latest --typescript` (App Router, Tailwind CSS 선택) 로 프로젝트 생성, 또는 기존 스캐폴딩이 있다면 그대로 사용
-  2. `npm install -g supabase` (Supabase CLI 설치, 또는 `npx supabase`로 대체 가능)
-  3. `supabase login` → `supabase init` → `supabase link --project-ref <project-ref>` (Supabase 대시보드에서 프로젝트를 먼저 생성한 뒤)
-  4. `docs/data-model-guide.md`의 "Supabase 초기 세팅 체크리스트"대로 테이블·RLS 정책·Google OAuth 프로바이더를 설정한 뒤 `supabase db push`로 마이그레이션 적용
-  5. Vercel 프로젝트를 생성하고 GitHub 저장소와 연결 (`vercel link` 또는 대시보드에서 Import) → 환경변수(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)를 Vercel 프로젝트 설정과 로컬 `.env.local`에 각각 등록
-- Supabase의 `project-ref`, API 키 등 프로젝트별 민감정보는 `.env.local`에만 두고 `.gitignore`에 포함해 커밋하지 않는다. 대신 `.env.local.example`을 키 이름만 채운 템플릿으로 커밋해 둔다.
-- 로컬 저장소에는 앱 코드(`app/`, `lib/`, `components/` 등)와 `supabase/migrations/*.sql`(스키마 버전 관리)만 존재한다. 실제 DB 데이터와 Auth 사용자 목록은 Supabase 클라우드 프로젝트에 있다.
+- 로컬 개발은 Node.js + Next.js 개발 서버(Next.js 16, React 19, Tailwind 4)를 쓴다. Next.js 16은 기존 지식과 다른 점이 있으므로(예: `middleware.ts` 대신 `proxy.ts`) 코드를 쓰기 전 `AGENTS.md`의 안내대로 `node_modules/next/dist/docs/`를 확인한다.
+- 이미 셋업된 저장소를 처음 받았을 때: `npm install` → `.env.local.example`을 `.env.local`로 복사해 Supabase 대시보드(Project Settings → API) 값을 채움 → `supabase login` → `supabase link --project-ref <project-ref>` → `npm run dev`. 값이 비어 있으면 `proxy.ts`가 모든 요청에서 에러를 낸다(의도된 동작).
+- 로그인 동작 확인에는 Google Cloud OAuth 클라이언트 발급과 Supabase의 Google 프로바이더·Redirect URL 등록이 필요하다 — [docs/auth-setup.md](docs/auth-setup.md)를 따른다. 스키마 초기 세팅 순서는 `docs/data-model-guide.md`의 "Supabase 초기 세팅 체크리스트"를 따른다.
+- 배포(미완료)는 Vercel 프로젝트를 만들고 GitHub 저장소를 Import한 뒤 환경변수(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)를 등록하고, 프로덕션 도메인을 Supabase Redirect URLs에 추가한다.
+- 로컬 DB는 Supabase CLI의 로컬 환경(`supabase start`, Docker 필요)을 쓴다. `supabase db reset`을 하면 마이그레이션 적용 후 `supabase/seed.sql`이 자동 실행된다 — 반 6개·학생 20명·테스트 교사 5명(관리자 1·교사 3·목사님 1)의 **로컬 전용 더미 데이터**이며 프로덕션에는 절대 실행하지 않는다.
+- Supabase의 `project-ref`, API 키 등 프로젝트별 민감정보는 `.env.local`에만 두고 `.gitignore`에 포함해 커밋하지 않는다. 대신 `.env.local.example`을 키 이름만 채운 템플릿으로 커밋해 둔다. `supabase/.temp`(link 캐시)도 커밋하지 않는다.
+- 로컬 저장소에는 앱 코드(`app/`, `lib/`, `components/`)와 `supabase/migrations/*.sql`(스키마 버전 관리), `docs/`만 존재한다. 실제 DB 데이터와 Auth 사용자 목록은 Supabase 클라우드 프로젝트에 있다.
 
 ## 자주 쓰는 명령어
 
-프로젝트 스캐폴딩 후 실제 사용할 명령어(코드 작성 시작하면 이 섹션을 최신화할 것):
-
 ```bash
 npm run dev                 # Next.js 로컬 개발 서버
-npm test                    # Vitest 유닛 테스트 (lib/ 순수 로직)
+npm run build               # 프로덕션 빌드 (타입 체크 포함)
+npm run lint                # ESLint
+npm test                    # Vitest 유닛 테스트 1회 실행 (lib/ 순수 로직)
+npx tsc --noEmit            # 타입 체크만
 supabase start              # 로컬 Supabase(Docker) 실행 — DB/Auth 로컬 테스트용
-supabase db push            # supabase/migrations의 스키마 변경을 연결된 프로젝트에 적용
-supabase db diff            # 로컬 DB와 마이그레이션 파일 간 차이 확인
-vercel dev                  # Vercel 환경과 동일하게 로컬 실행 (필요 시)
-vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push 시 자동 배포되므로 수동 배포는 예외적)
+supabase db reset           # 로컬 DB를 마이그레이션 + seed.sql로 초기화 (로컬 전용)
+supabase migration list     # 로컬/원격 마이그레이션 적용 현황 비교
+supabase db push            # 미적용 마이그레이션을 연결된 원격 프로젝트에 적용 (DB 비밀번호 필요)
+supabase gen types typescript --linked > lib/database.types.ts   # 스키마 변경 후 타입 재생성
 ```
+
+배포 연결 후에는 `main` 브랜치 push 시 Vercel이 자동 배포하므로 수동 `vercel deploy`는 예외적으로만 쓴다.
 
 ## 테스트 방법
 
-- 순수 로직(권한 판단, 통계 집계 등)은 `lib/`에 일반 함수로 분리해 Vitest(또는 Jest)로 유닛 테스트한다.
-- DB를 다루는 로직은 `supabase start`로 띄운 로컬 Postgres에 대해 실행하며 검증한다. 프로덕션 Supabase 프로젝트에 직접 테스트하지 않는다 — 로컬 개발 환경(Docker) 또는 별도 개발용 Supabase 프로젝트를 둔다.
-- UI 변경은 Vercel Preview Deployment(PR마다 자동 생성되는 미리보기 URL)에서 반응형(모바일 폭 포함) 동작을 직접 확인한다.
+- 순수 로직(날짜 계산, 입력 검증, 엑셀 생성, 파라미터 파싱 등)은 `lib/`에 일반 함수로 분리하고 같은 위치에 `*.test.ts`로 Vitest 유닛 테스트를 둔다(현재 `lib/date`, `lib/redirect`, `lib/masterValidation`, `lib/statisticsParams`, `lib/xlsx`, `lib/db/students`, `lib/db/teacherAttendance` 테스트가 있다). 화면·Server Action·RLS 정책에는 자동화 테스트가 없다.
+- DB를 다루는 로직은 `supabase start`로 띄운 로컬 Postgres(`supabase db reset`으로 시드 적용)에 대해 실행하며 검증한다. 프로덕션 Supabase 프로젝트에 직접 테스트하지 않는다.
+- 마이그레이션·RLS 변경 시에는 시드의 관리자/교사/목사님 계정으로 각각 조회·쓰기가 의도대로 되는지 확인한다(권한은 계정별로 결과가 달라진다).
+- UI 변경은 로컬 개발 서버(또는 배포 연결 후 Vercel Preview Deployment)에서 반응형(모바일 폭 포함) 동작을 직접 확인한다.
 
 ## 데이터 모델 — Supabase Postgres
 
@@ -67,15 +77,16 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 테이블 생성 SQL, 컬럼별 타입·제약조건, RLS 정책, 반 이동 처리 등 실무 디테일은 **[docs/data-model-guide.md](docs/data-model-guide.md)**에 정리되어 있다. 스키마를 다루는 작업을 할 때는 이 문서를 먼저 확인한다.
 
-| 테이블            | 역할                                        | 주요 컬럼                                                                                                     |
-| ----------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `classes`         | 반 마스터                                   | id, name, is_active, created_at                                                                               |
-| `students`        | 학생 마스터                                 | id, name, class_id, enrolled_date, is_active, grade                                                           |
-| `attendance`      | 출석 기록 (1행 = 1명×1일)                   | id, date, class_id, student_id, status, comment, recorded_by, recorded_at, last_modified_by, last_modified_at |
-| `student_notes`   | 학생 프로필 메모 (날짜 무관, 지속 특이사항) | id, student_id, note, created_by, created_at                                                                  |
-| `teachers`        | 교사 마스터 · 로그인 화이트리스트           | id (auth.users.id), email, name, role, is_active                                                              |
-| `teacher_classes` | 교사 ↔ 반 매핑 (다대다)                     | teacher_id, class_id                                                                                          |
-| `app_settings`    | 전역 설정 (단일 행)                         | id (항상 true), teachers_can_view_all, updated_by, updated_at                                                 |
+| 테이블               | 역할                                                              | 주요 컬럼                                                                                                     |
+| -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `classes`            | 반 마스터                                                         | id, name, is_active, created_at                                                                               |
+| `students`           | 학생 마스터                                                       | id, name, class_id, enrolled_date, is_active, grade (중1~고3, nullable)                                       |
+| `attendance`         | 출석 기록 (1행 = 1명×1일)                                         | id, date, class_id, student_id, status, comment, recorded_by, recorded_at, last_modified_by, last_modified_at |
+| `student_notes`      | 학생 프로필 메모 (날짜 무관, 지속 특이사항)                       | id, student_id, note, created_by, created_at                                                                  |
+| `teachers`           | 교사 마스터 · 로그인 화이트리스트                                 | id (auth.users.id), email, name, role, is_active                                                              |
+| `teacher_classes`    | 교사 ↔ 반 매핑 (다대다)                                           | teacher_id, class_id                                                                                          |
+| `teacher_attendance` | 교사 출석 기록 (1행 = 1교사×1일, 학생 `attendance`와 별도 테이블) | id, date, teacher_id, status, comment, recorded_by, recorded_at, last_modified_by, last_modified_at           |
+| `app_settings`       | 전역 설정 (단일 행)                                               | id (항상 true), teachers_can_view_all, updated_by, updated_at                                                 |
 
 - **출석 상태**는 출석 / 지각 / 결석 / 공예배 4종으로 고정 (Postgres `check` 제약조건으로 강제).
 - **코멘트는 2종을 구분해서 유지**한다: `attendance.comment`(당일 사유, 예: 지각 이유)와 `student_notes`(지속적 특이사항, 예: 알레르기). 이 둘을 하나로 합치지 않는다.
@@ -88,7 +99,8 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 - **관리자** (복수 가능): 전체 반·학생 조회/통계, 교사·학생 마스터 관리, 모든 기록 수정 가능. `app_settings.teachers_can_view_all` 스위치도 관리자만 바꾼다.
 - **교사**: 기본(`teachers_can_view_all = true`)으로는 모든 반·학생을 조회하고 출석을 입력·수정할 수 있다(학생 전체보기 포함). 관리자가 스위치를 끄면 `teacher_classes`에 매핑된 담당 반만 가능하다. 스위치는 전체 교사 일괄 적용이며 교사별 개별 설정은 없다. 읽기·쓰기 권한은 분리하지 않는다. `student_notes`와 `attendance.comment`도 같은 범위로 공개된다.
-- **목사님** (`role='pastor'`, `teachers` 테이블에 등록): 모든 학생의 출석·코멘트·메모를 **조회만** 할 수 있고 수정은 못 한다.
+- **목사님** (`role='pastor'`, `teachers` 테이블에 등록): 모든 학생의 출석·코멘트·메모를 **조회/수정** 할 수 있다.
+- **교사 출석**: 관리 대상은 활성 `role='teacher'`뿐이고, 로그인한 활성 사용자 전원(교사·관리자·목사님)이 어떤 교사의 출석이든 입력·수정·조회할 수 있다(본인 체크인과 대리 입력을 구분하지 않음). 반에 종속되지 않으므로 `teachers_can_view_all`·`can_access_class`와 무관하며, 대상 검증은 RLS(`is_attendance_teacher`)가 한다. 교사 명단은 `teachers`가 본인·관리자만 조회 가능해 `list_attendance_teachers()`(security definer)로만 읽는다.
 - 로그인 사용자가 `teachers` 테이블에 없으면 접근 차단 (화이트리스트 방식, 자체 회원가입 없음). Supabase Auth 자체는 Google 계정이면 누구나 로그인에 성공할 수 있으므로, 반드시 애플리케이션 레벨(및 RLS 정책)에서 `teachers.is_active` 여부를 확인해 차단한다.
 - 권한은 애플리케이션 코드뿐 아니라 **Supabase RLS(Row Level Security) 정책으로 DB 레벨에서도 이중으로 강제**한다 — Server Action에서의 권한 체크가 누락되더라도 DB가 잘못된 접근을 막아주는 것이 Postgres 전환의 핵심 이점이다.
 - **과거 기록 수정에 잠금이 없다** — 모든 교사가 지난 날짜 기록을 자유롭게 수정할 수 있는 것이 확정된 설계다. 이를 막는 잠금/승인 로직을 임의로 추가하지 않는다. 대신 감사 추적을 위해 `attendance`에 `last_modified_by`/`last_modified_at` 컬럼을 둔다 — 최초 입력 시 `recorded_*`와 동일값, 이후 수정 시에만 갱신.
@@ -96,7 +108,7 @@ vercel deploy --prod        # 프로덕션 배포 (보통은 main 브랜치 push
 
 ## 화면 흐름
 
-로그인(Google 계정) → 출석 입력(반/날짜 선택은 별도 화면 없이 이 화면 상단 컨텍스트 바에서 처리 — 교사는 담당 반만, 관리자는 전체+필터, 날짜 기본값은 이번 주 일요일. 학생 리스트 + 상태 버튼 + 당일 코멘트. 상세 설계: [docs/screens/attendance-input.md](docs/screens/attendance-input.md)) → 학생 상세(출석 이력 + 프로필 메모, 상세 설계: [docs/screens/student-detail.md](docs/screens/student-detail.md). 반별/학생별 월간 통계는 별도로 P3에서 다룬다)
+로그인(Google 계정) → 출석 입력(반/날짜 선택은 별도 화면 없이 이 화면 상단 컨텍스트 바에서 처리 — 교사는 담당 반만, 관리자는 전체+필터, 날짜 기본값은 이번 주 일요일. 학생 리스트 + 상태 버튼 + 당일 코멘트. 상단 `학생 | 교사` 탭으로 교사 출석도 같은 화면에서 입력 — [docs/screens/teacher-attendance.md](docs/screens/teacher-attendance.md). 상세 설계: [docs/screens/attendance-input.md](docs/screens/attendance-input.md)) → 학생 상세(출석 이력 + 프로필 메모, 상세 설계: [docs/screens/student-detail.md](docs/screens/student-detail.md). 반별/학생별 월간 통계는 별도로 P3에서 다룬다)
 
 엑셀 내보내기는 별도 화면이 아니라 각 조회 화면(출석 입력 목록, 통계)에 "엑셀로 내보내기" 버튼으로 곁들인다 — 서버(Route Handler)에서 `exceljs`로 `.xlsx`를 생성해 다운로드시킨다 (SheetJS `xlsx`는 npm 배포판에 미패치 취약점이 있어 사용하지 않는다).
 
