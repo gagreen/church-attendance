@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  adjacentSunday,
   addMonths,
   calendarMonthGrid,
   formatDateDotted,
@@ -32,6 +33,25 @@ describe('addDays', () => {
     expect(addDays('2026-09-20', -1)).toBe('2026-09-19');
     expect(addDays('2026-09-30', 1)).toBe('2026-10-01');
     expect(addDays('2026-01-01', -1)).toBe('2025-12-31');
+  });
+});
+
+describe('adjacentSunday', () => {
+  it('일요일에서는 7일 전/후 일요일', () => {
+    expect(adjacentSunday('2026-09-20', -1)).toBe('2026-09-13');
+    expect(adjacentSunday('2026-09-20', 1)).toBe('2026-09-27');
+  });
+
+  it('주중에서는 직전/직후 일요일', () => {
+    expect(adjacentSunday('2026-09-23', -1)).toBe('2026-09-20'); // 수요일
+    expect(adjacentSunday('2026-09-23', 1)).toBe('2026-09-27');
+    expect(adjacentSunday('2026-09-26', 1)).toBe('2026-09-27'); // 토요일
+    expect(adjacentSunday('2026-09-21', -1)).toBe('2026-09-20'); // 월요일
+  });
+
+  it('월/연 경계를 넘어 이동', () => {
+    expect(adjacentSunday('2026-09-27', 1)).toBe('2026-10-04');
+    expect(adjacentSunday('2026-01-01', -1)).toBe('2025-12-28');
   });
 });
 

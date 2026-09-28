@@ -124,7 +124,8 @@ supabase gen types typescript --linked > lib/database.types.ts   # 스키마 변
 
 ## 저장소 규칙
 
-- 커밋/브랜치 전략은 아직 정해지지 않음 — 첫 커밋 전에 사용자에게 확인한다.
+- 커밋 전에 사용자에게 확인한다.
+- /feature-commit-merge 스킬을 사용해서 커밋하는 것을 지향한다.
 - `docs/data-model-guide.md`와 이 CLAUDE.md는 기능 변경 시 함께 갱신 대상인지 확인하고, 확정된 설계를 코드가 벗어나면 둘 중 하나가 최신화되어야 한다.
 - `supabase/migrations/*.sql`은 스키마 변경의 단일 소스다 — Supabase Studio에서 직접 테이블을 고치고 마이그레이션 파일에 반영하지 않는 방식은 지양한다(드리프트 방지).
 

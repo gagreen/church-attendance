@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { addDays, calendarMonthGrid, formatDateLabel, isSunday } from '@/lib/date';
+import { adjacentSunday, calendarMonthGrid, formatDateLabel, isSunday } from '@/lib/date';
 import { Sheet } from './Sheet';
 
 const WEEKDAY_HEADERS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -42,8 +42,8 @@ export function DatePicker({ date, onChange }: { date: string; onChange: (date: 
     <div className="flex items-center gap-0.5">
       <button
         type="button"
-        onClick={() => onChange(addDays(date, -1))}
-        aria-label="하루 전"
+        onClick={() => onChange(adjacentSunday(date, -1))}
+        aria-label="이전 일요일"
         className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-lg hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         ‹
@@ -57,8 +57,8 @@ export function DatePicker({ date, onChange }: { date: string; onChange: (date: 
       </button>
       <button
         type="button"
-        onClick={() => onChange(addDays(date, 1))}
-        aria-label="하루 후"
+        onClick={() => onChange(adjacentSunday(date, 1))}
+        aria-label="다음 일요일"
         className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-lg hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         ›

@@ -34,6 +34,13 @@ export function addDays(dateStr: string, days: number): string {
   return toDateStr(date);
 }
 
+// 이전(-1)/다음(1) 일요일. 일요일이면 7일 전/후, 주중이면 직전/직후 일요일로 이동한다(자기 자신은 포함하지 않음).
+export function adjacentSunday(dateStr: string, direction: -1 | 1): string {
+  const sunday = sundayOfWeek(dateStr);
+  if (direction === -1) return addDays(sunday, sunday === dateStr ? -7 : 0);
+  return addDays(sunday, 7);
+}
+
 // 'YYYY-MM-DD' 형식이면서 실제로 존재하는 날짜인지(예: 2026-02-30은 false).
 export function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
