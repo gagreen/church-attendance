@@ -81,6 +81,43 @@ export async function upsertAttendance(params: UpsertAttendanceParams): Promise<
   if (error) throw new Error(`attendance 저장 실패: ${error.message}`);
 }
 
+export type AttendanceBatchEntry = {
+  studentId: string;
+  classId: string;
+  status: AttendanceStatus;
+  comment: string | null;
+};
+
+type UpsertAttendanceBatchParams = {
+  date: string;
+  entries: AttendanceBatchEntry[];
+  teacherId: string;
+};
+
+// API 호출 절약용 일괄 저장: 탭/코멘트 입력마다 즉시 저장하지 않고 화면(usePendingAttendance)이 쌓아둔
+// 변경분을 출석 종료·화면 이탈 시 한 번에 올린다. 각 엔트리가 그 학생의 "현재 전체 값"(status까지 포함)
+// 이라 upsertAttendance처럼 기존 status를 따로 읽어올 필요가 없다 — 화면이 status가 정해진 행만 큐에
+// 넣는다고 보장하기 때문이다(코멘트는 status가 있어야만 입력 가능). 명시적 편집이므로 상대가 이미 쓴
+// 값이 있어도 그대로 덮어쓴다(insertMissingAttendance의 ignoreDuplicates와 다름 — "과거 기록 수정에
+// 잠금 없음, 마지막 저장이 이긴다" 원칙).
+export async function upsertAttendanceBatch(params: UpsertAttendanceBatchParams): Promise<void> {
+  if (params.entries.length === 0) return;
+  const supabase = await createClient();
+
+  const rows: TablesInsert<'attendance'>[] = params.entries.map((e) => ({
+    date: params.date,
+    class_id: e.classId,
+    student_id: e.studentId,
+    status: e.status,
+    comment: e.comment,
+    recorded_by: params.teacherId,
+    last_modified_by: params.teacherId,
+  }));
+
+  const { error } = await supabase.from('attendance').upsert(rows, { onConflict: 'date,student_id' });
+  if (error) throw new Error(`attendance 일괄 저장 실패: ${error.message}`);
+}
+
 type InsertMissingAttendanceParams = {
   date: string;
   students: { studentId: string; classId: string }[];

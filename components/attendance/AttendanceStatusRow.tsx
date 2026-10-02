@@ -59,6 +59,7 @@ export function AttendanceStatusRow({
   showLateButton,
   comment,
   saving,
+  dirty,
   commentOpen,
   readOnly,
   onToggleComment,
@@ -71,6 +72,9 @@ export function AttendanceStatusRow({
   showLateButton: boolean;
   comment: string | null;
   saving: boolean;
+  // true면 로컬에만 반영되고 아직 서버에 보내지 않은 변경이 있다는 뜻(API 호출 절약을 위한 일괄 저장
+  // 화면 전용). saving(실시간 저장 중)과는 별개 표시라 둘 다 전달되면 saving을 우선한다.
+  dirty?: boolean;
   commentOpen: boolean;
   readOnly: boolean;
   onToggleComment: () => void;
@@ -163,10 +167,19 @@ export function AttendanceStatusRow({
           💬
         </button>
 
-        {saving && (
+        {saving ? (
           <span className="absolute right-2 top-1 text-[10px] text-zinc-400">
             저장 중…
           </span>
+        ) : (
+          dirty && (
+            <span
+              className="absolute right-2 top-1 text-[10px] text-amber-600 dark:text-amber-400"
+              title="아직 서버에 저장되지 않았습니다 — 출석 종료를 누르거나 화면을 벗어나면 저장됩니다"
+            >
+              변경됨
+            </span>
+          )
         )}
       </div>
 

@@ -95,6 +95,37 @@ export async function upsertTeacherAttendance(params: UpsertTeacherAttendancePar
   if (error) throw new Error(`teacher_attendance 저장 실패: ${error.message}`);
 }
 
+export type TeacherAttendanceBatchEntry = {
+  teacherId: string;
+  status: AttendanceStatus;
+  comment: string | null;
+};
+
+type UpsertTeacherAttendanceBatchParams = {
+  date: string;
+  entries: TeacherAttendanceBatchEntry[];
+  recordedBy: string;
+};
+
+// 학생 쪽 upsertAttendanceBatch와 동일한 이유로 둔다(lib/db/attendance.ts 참고) — 명시적 편집은
+// 상대가 쓴 값이 있어도 그대로 덮어쓴다.
+export async function upsertTeacherAttendanceBatch(params: UpsertTeacherAttendanceBatchParams): Promise<void> {
+  if (params.entries.length === 0) return;
+  const supabase = await createClient();
+
+  const rows: TablesInsert<'teacher_attendance'>[] = params.entries.map((e) => ({
+    date: params.date,
+    teacher_id: e.teacherId,
+    status: e.status,
+    comment: e.comment,
+    recorded_by: params.recordedBy,
+    last_modified_by: params.recordedBy,
+  }));
+
+  const { error } = await supabase.from('teacher_attendance').upsert(rows, { onConflict: 'date,teacher_id' });
+  if (error) throw new Error(`teacher_attendance 일괄 저장 실패: ${error.message}`);
+}
+
 type InsertMissingTeacherAttendanceParams = {
   date: string;
   teacherIds: string[];

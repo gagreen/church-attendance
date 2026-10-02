@@ -9,6 +9,7 @@ export function StudentRow({
   showClassTag,
   showLateButton,
   saving,
+  dirty,
   commentOpen,
   readOnly,
   onToggleComment,
@@ -20,6 +21,7 @@ export function StudentRow({
   showClassTag: boolean;
   showLateButton: boolean;
   saving: boolean;
+  dirty?: boolean;
   commentOpen: boolean;
   readOnly: boolean;
   onToggleComment: () => void;
@@ -47,6 +49,7 @@ export function StudentRow({
       showLateButton={showLateButton}
       comment={row.comment}
       saving={saving}
+      dirty={dirty}
       commentOpen={commentOpen}
       readOnly={readOnly}
       onToggleComment={onToggleComment}

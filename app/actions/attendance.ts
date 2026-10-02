@@ -9,10 +9,12 @@ import {
   insertMissingAttendance,
   listAttendanceForDate,
   upsertAttendance,
+  upsertAttendanceBatch,
+  type AttendanceBatchEntry,
   type AttendanceStatus,
 } from '@/lib/db/attendance';
 
-export type { AttendanceStatus } from '@/lib/db/attendance';
+export type { AttendanceBatchEntry, AttendanceStatus } from '@/lib/db/attendance';
 export type { ClassOption } from '@/lib/db/classes';
 
 export type AttendanceViewRow = {
@@ -132,16 +134,36 @@ export async function saveAttendanceComment(params: SaveAttendanceCommentParams)
   }
 }
 
+// API 호출 절약을 위해 상태 버튼/코멘트는 탭마다 즉시 저장하지 않고 화면(usePendingAttendance)이
+// 들고 있다가 아래 두 경로로만 서버에 올린다: ① 반/날짜/탭 전환·화면 이탈 시 이 액션, ② 브라우저 탭을
+// 닫거나 다른 곳으로 이동할 때는 Server Action 응답을 기다릴 수 없어 대신 sendBeacon →
+// app/api/attendance/flush(Route Handler)로 보낸다. docs/screens/attendance-input.md 참고.
+export type SaveAttendanceBatchParams = { date: string; entries: AttendanceBatchEntry[] };
+
+export async function saveAttendanceBatch(params: SaveAttendanceBatchParams): Promise<SaveResult> {
+  const teacher = await requireTeacher();
+  try {
+    await upsertAttendanceBatch({ date: params.date, entries: params.entries, teacherId: teacher.id });
+    return { ok: true };
+  } catch (e) {
+    console.error('출석 일괄 저장 실패:', e);
+    return { ok: false, error: '저장에 실패했습니다. 다시 시도해 주세요.' };
+  }
+}
+
 export type CloseAttendanceParams = {
   date: string;
-  students: { studentId: string; classId: string }[];
+  students: { studentId: string; classId: string }[]; // 미체크 → 결석 자동 채움 대상
+  entries: AttendanceBatchEntry[]; // 아직 서버에 못 보낸 대기 중인 명시적 변경분(같이 흘려보냄)
 };
 
-// "출석 종료": 화면에 로드된 미체크 학생들을 결석으로 일괄 저장한다. 교사가 명시적으로 누른 동작이므로
-// recorded_by가 그 교사로 남고, 이미 기록이 있는 학생은 건드리지 않는다.
+// "출석 종료": 대기 중이던 변경분을 먼저 반영하고, 그래도 미체크로 남은 학생들을 결석으로 채운다.
+// 교사가 명시적으로 누른 동작이므로 recorded_by가 그 교사로 남고, 자동 채움은 이미 기록이 있는 학생을
+// 건드리지 않는다(ignoreDuplicates) — 명시적 변경분(entries)은 반대로 덮어쓴다(upsertAttendanceBatch).
 export async function closeAttendanceAsAbsent(params: CloseAttendanceParams): Promise<SaveResult> {
   const teacher = await requireTeacher();
   try {
+    await upsertAttendanceBatch({ date: params.date, entries: params.entries, teacherId: teacher.id });
     await insertMissingAttendance({
       date: params.date,
       students: params.students,

@@ -5,15 +5,19 @@ import type { AttendanceStatus } from '@/app/actions/attendance';
 import {
   closeTeacherAttendanceAsAbsent,
   getTeacherAttendanceView,
-  saveTeacherAttendanceComment,
-  saveTeacherAttendanceStatus,
+  saveTeacherAttendanceBatch,
+  type TeacherAttendanceBatchEntry,
   type TeacherAttendanceRow,
 } from '@/app/actions/teacherAttendance';
 import { TeacherRow } from './TeacherRow';
+import { registerAttendanceBeaconFlush, usePendingAttendance } from './usePendingAttendance';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
-// 교사 탭(docs/screens/teacher-attendance.md). 동작은 StudentAttendancePanel과 같고, 반 선택이 없으며
+const FLUSH_BEACON_URL = '/api/attendance/flush';
+
+// 교사 탭(docs/screens/teacher-attendance.md). 저장 시점은 StudentAttendancePanel과 동일하게 탭마다
+// 즉시가 아니라 날짜 전환·화면 이탈·탭 숨김/닫기·출석 종료 시점에만 일괄 저장한다(API 호출 절약).
 // 읽기 전용이 없다(목사님 포함 모두 입력 가능). 날짜와 컨텍스트 바(`header`)는 부모가 관리한다.
 export function TeacherAttendancePanel({
   date,
@@ -27,10 +31,12 @@ export function TeacherAttendancePanel({
   const [rows, setRows] = useState<TeacherAttendanceRow[]>([]);
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [commentOpenIds, setCommentOpenIds] = useState<Set<string>>(new Set());
-  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const requestId = useRef(0);
+
+  const { dirtyIds, markDirty, getPendingEntries, clearPending } =
+    usePendingAttendance<TeacherAttendanceBatchEntry>();
 
   const load = useCallback((targetDate: string) => {
     const myRequestId = ++requestId.current;
@@ -48,84 +54,99 @@ export function TeacherAttendancePanel({
       });
   }, []);
 
-  // 날짜 변경 시 재조회 시작을 알리는 로딩 상태 전환(load 내부 setLoadState) — 실제 데이터는 비동기 콜백에서 반영된다.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load(date);
-  }, [date, load]);
-
   function showToast(message: string) {
     setToast(message);
     setTimeout(() => setToast((current) => (current === message ? null : current)), 3000);
   }
 
+  // 학생 탭과 동일한 이유로 둔다(StudentAttendancePanel 참고) — 실패해도 로컬 입력은 유지하고 버퍼에
+  // 남겨서 다음 플러시 때 재시도한다.
+  const flushPending = useCallback(
+    async (targetDate: string) => {
+      const entries = getPendingEntries();
+      if (entries.length === 0) return;
+      try {
+        const result = await saveTeacherAttendanceBatch({ date: targetDate, entries });
+        if (result.ok) clearPending();
+        else showToast(result.error);
+      } catch {
+        showToast('저장에 실패했습니다. 다시 시도해 주세요.');
+      }
+    },
+    [getPendingEntries, clearPending]
+  );
+
+  // 날짜 변경 시 재조회 시작을 알리는 로딩 상태 전환(load 내부 setLoadState) — 실제 데이터는 비동기 콜백에서
+  // 반영된다. cleanup은 "지금까지의" date로 닫히는 클로저라 다음 날짜로 넘어가기 직전이나 이 탭을
+  // 벗어날 때(언마운트) 방금 쓴 변경분을 그 날짜 기준으로 흘려보낸다.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load(date);
+    return () => {
+      flushPending(date);
+    };
+  }, [date, load, flushPending]);
+
+  // 탭 숨김·페이지 닫기 시 sendBeacon으로 흘려보낸다(Server Action은 이 시점에 응답을 기다릴 수 없음).
+  useEffect(() => {
+    return registerAttendanceBeaconFlush(() => {
+      const entries = getPendingEntries();
+      if (entries.length === 0) return;
+      const blob = new Blob([JSON.stringify({ kind: 'teacher', date, entries })], {
+        type: 'application/json',
+      });
+      navigator.sendBeacon(FLUSH_BEACON_URL, blob);
+    });
+  }, [date, getPendingEntries]);
+
   function updateRow(teacherId: string, patch: Partial<TeacherAttendanceRow>) {
     setRows((current) => current.map((r) => (r.teacherId === teacherId ? { ...r, ...patch } : r)));
   }
 
-  function withSaving(teacherId: string, task: Promise<{ ok: true } | { ok: false; error: string }>, rollback: () => void) {
-    setSavingIds((current) => new Set(current).add(teacherId));
-    task
-      .then((result) => {
-        if (!result.ok) {
-          rollback();
-          showToast(result.error);
-        }
-      })
-      .catch(() => {
-        rollback();
-        showToast('저장에 실패했습니다. 다시 시도해 주세요.');
-      })
-      .finally(() => {
-        setSavingIds((current) => {
-          const next = new Set(current);
-          next.delete(teacherId);
-          return next;
-        });
-      });
-  }
-
   function handleStatusChange(row: TeacherAttendanceRow, status: AttendanceStatus) {
-    const prevStatus = row.status;
     updateRow(row.teacherId, { status });
-    withSaving(
-      row.teacherId,
-      saveTeacherAttendanceStatus({ teacherId: row.teacherId, date, status }),
-      () => updateRow(row.teacherId, { status: prevStatus })
-    );
+    markDirty(row.teacherId, { teacherId: row.teacherId, status, comment: row.comment });
   }
 
   function handleCommentCommit(row: TeacherAttendanceRow, comment: string) {
-    const prevComment = row.comment;
+    if (row.status === null) return; // 상태 선택 전에는 코멘트 입력 자체가 막혀 있어 정상 흐름에선 안 옴
     const trimmed = comment.trim();
-    updateRow(row.teacherId, { comment: trimmed || null });
-    withSaving(
-      row.teacherId,
-      saveTeacherAttendanceComment({ teacherId: row.teacherId, date, comment: trimmed }),
-      () => updateRow(row.teacherId, { comment: prevComment })
-    );
+    const nextComment = trimmed || null;
+    updateRow(row.teacherId, { comment: nextComment });
+    markDirty(row.teacherId, { teacherId: row.teacherId, status: row.status, comment: nextComment });
   }
 
   function handleCloseAttendance() {
-    const unchecked = rows.filter((r) => r.status === null);
-    if (unchecked.length === 0 || closing) return;
-    if (!window.confirm(`입력하지 않은 교사 ${unchecked.length}명을 모두 결석으로 저장할까요?`)) return;
+    const missing = rows.filter((r) => r.status === null);
+    const entries = getPendingEntries();
+    if (closing || (missing.length === 0 && entries.length === 0)) return;
+    if (
+      missing.length > 0 &&
+      !window.confirm(`입력하지 않은 교사 ${missing.length}명을 모두 결석으로 저장할까요?`)
+    )
+      return;
 
-    const uncheckedIds = new Set(unchecked.map((r) => r.teacherId));
+    const missingIds = new Set(missing.map((r) => r.teacherId));
     setClosing(true);
-    setRows((current) => current.map((r) => (uncheckedIds.has(r.teacherId) ? { ...r, status: '결석' } : r)));
-    const rollback = () =>
-      setRows((current) => current.map((r) => (uncheckedIds.has(r.teacherId) ? { ...r, status: null } : r)));
+    if (missingIds.size > 0) {
+      setRows((current) => current.map((r) => (missingIds.has(r.teacherId) ? { ...r, status: '결석' } : r)));
+    }
+    const rollbackMissing = () => {
+      if (missingIds.size === 0) return;
+      setRows((current) => current.map((r) => (missingIds.has(r.teacherId) ? { ...r, status: null } : r)));
+    };
 
-    closeTeacherAttendanceAsAbsent({ date, teacherIds: [...uncheckedIds] })
+    closeTeacherAttendanceAsAbsent({ date, teacherIds: [...missingIds], entries })
       .then((result) => {
-        if (!result.ok) {
-          rollback();
+        if (result.ok) {
+          clearPending();
+        } else {
+          rollbackMissing();
           showToast(result.error);
         }
       })
       .catch(() => {
-        rollback();
+        rollbackMissing();
         showToast('출석 종료 처리에 실패했습니다. 다시 시도해 주세요.');
       })
       .finally(() => setClosing(false));
@@ -160,11 +181,14 @@ export function TeacherAttendancePanel({
             출석 {summary.출석}
             {(showLateButton || summary.지각 > 0) && <> · 지각 {summary.지각}</>} · 결석 {summary.결석} · 공예배{' '}
             {summary.공예배}
+            {dirtyIds.size > 0 && (
+              <span className="text-amber-600 dark:text-amber-400"> · 저장 대기 {dirtyIds.size}</span>
+            )}
           </span>
           <button
             type="button"
             onClick={handleCloseAttendance}
-            disabled={closing || loadState !== 'ready' || !rows.some((r) => r.status === null)}
+            disabled={closing || loadState !== 'ready' || (!rows.some((r) => r.status === null) && dirtyIds.size === 0)}
             className="shrink-0 rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             {closing ? '처리 중…' : '출석 종료'}
@@ -205,7 +229,8 @@ export function TeacherAttendancePanel({
                 key={row.teacherId}
                 row={row}
                 showLateButton={showLateButton}
-                saving={savingIds.has(row.teacherId)}
+                saving={false}
+                dirty={dirtyIds.has(row.teacherId)}
                 commentOpen={commentOpenIds.has(row.teacherId)}
                 onToggleComment={() => toggleComment(row.teacherId)}
                 onCommentBlockedTap={() => showToast('상태를 먼저 선택하세요')}

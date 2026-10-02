@@ -8,6 +8,7 @@ export function TeacherRow({
   row,
   showLateButton,
   saving,
+  dirty,
   commentOpen,
   onToggleComment,
   onCommentBlockedTap,
@@ -17,6 +18,7 @@ export function TeacherRow({
   row: TeacherAttendanceRow;
   showLateButton: boolean;
   saving: boolean;
+  dirty?: boolean;
   commentOpen: boolean;
   onToggleComment: () => void;
   onCommentBlockedTap: () => void;
@@ -37,6 +39,7 @@ export function TeacherRow({
       showLateButton={showLateButton}
       comment={row.comment}
       saving={saving}
+      dirty={dirty}
       commentOpen={commentOpen}
       // 목사님도 교사 출석은 입력할 수 있다(docs/screens/teacher-attendance.md) — 화면 전체 readOnly와 무관.
       readOnly={false}

@@ -78,7 +78,7 @@ create policy teacher_attendance_write on teacher_attendance for all
 - **탭 전환**: 날짜는 두 탭이 공유한다(탭을 바꿔도 같은 주일). 탭 선택은 `localStorage`에 기억(기본 `학생`).
 - **반 드롭다운**: 교사 탭에서는 숨긴다. 교사가 6~8명이라 필터가 불필요하다. 학생 탭으로 돌아가면 기존 반 선택이 그대로 복원된다.
 - **정렬**: 이름 가나다순 단일 리스트(학년 개념 없음). 각 행에 담당 반 이름을 작은 태그로 병기하고, 담당 반이 없으면 `담당 반 없음`.
-- **행 구성·상태 버튼·💬 코멘트·요약 바·미체크 틴트·지각 버튼 숨김 설정(`show_late_button`)·`출석 종료` 버튼(미체크 교사를 결석으로 일괄 저장)**: 학생 탭과 동일. 이름은 탭해도 이동하지 않는다(교사 상세 화면 없음).
+- **행 구성·상태 버튼·💬 코멘트·요약 바·미체크 틴트·지각 버튼 숨김 설정(`show_late_button`)·저장 방식(탭마다 즉시 저장하지 않고 일괄 저장, [attendance-input.md#저장](attendance-input.md#저장-탭마다-즉시-저장하지-않고-일괄-저장한다api-호출-절약))·`출석 종료` 버튼**: 학생 탭과 동일. 이름은 탭해도 이동하지 않는다(교사 상세 화면 없음).
 - **요약 바**: 현재 탭 기준 집계. 교사 탭에서는 교사 명단 기준이다.
 - **읽기 전용 아님**: 목사님도 버튼이 활성화된다(위 권한 모델). 그 외 사용자도 본인 행과 타인 행을 구분해 표시하지 않는다.
 
@@ -93,15 +93,20 @@ type TeacherAttendanceRow = {
   comment: string | null;
 };
 
-getTeacherAttendanceView({ date }): TeacherAttendanceRow[]   // 활성 role='teacher', 이름순
-saveTeacherAttendanceStatus({ teacherId, date, status })
-saveTeacherAttendanceComment({ teacherId, date, comment })
-closeTeacherAttendanceAsAbsent({ date, teacherIds })          // 출석 종료
+type TeacherAttendanceBatchEntry = {
+  teacherId: string;
+  status: '출석' | '지각' | '결석' | '공예배';
+  comment: string | null;
+};
+
+getTeacherAttendanceView({ date }): TeacherAttendanceRow[]            // 활성 role='teacher', 이름순
+saveTeacherAttendanceBatch({ date, entries: TeacherAttendanceBatchEntry[] })       // 일반 플러시
+closeTeacherAttendanceAsAbsent({ date, teacherIds, entries: TeacherAttendanceBatchEntry[] })  // 출석 종료
 ```
 
+- 탭/코멘트는 즉시 저장하지 않고 로컬 버퍼에 쌓았다가 일괄 저장한다 — 트리거·`sendBeacon` 엔드포인트(`app/api/attendance/flush`, `kind: 'teacher'`)·실패 시 처리 방식은 전부 학생 탭과 동일하다([attendance-input.md#저장](attendance-input.md#저장-탭마다-즉시-저장하지-않고-일괄-저장한다api-호출-절약) 참고).
 - DB I/O는 `lib/db/teacherAttendance.ts` 헬퍼로만 한다. upsert는 `onConflict: 'date,teacher_id'`, 감사 필드 보존 규칙은 학생 출석과 동일.
 - 감사 필드는 화면에 내려주지 않는다.
-- 저장 실패 시 낙관적 UI 롤백 + 토스트(공통 원칙).
 
 ## 엣지 케이스
 

@@ -120,41 +120,48 @@ type AttendanceViewRow = {
 - 내부 쿼리는 `lib/db/students.ts`(반/전체 학생 목록 + 정렬)와 `lib/db/attendance.ts`(해당 날짜의 기존 기록 조회 후 학생 목록과 병합)로 분리한다.
 - `recorded_by`, `recorded_at`, `last_modified_*` 등 감사 필드는 이 화면에 내려주지 않는다(코드 스타일 원칙: 화면별 최소 데이터).
 
-### 저장: `app/actions/attendance.ts` → `saveAttendanceStatus` / `saveAttendanceComment`
+### 저장: 탭마다 즉시 저장하지 않고 일괄 저장한다(API 호출 절약)
+
+상태 버튼 탭·코멘트 커밋은 **로컬 상태만** 낙관적으로 바꾸고, `components/attendance/usePendingAttendance.ts`의
+버퍼(`Map<studentId, AttendanceBatchEntry>`)에 "그 학생의 현재 전체 값"(`status`+`comment`)을 쌓아 둔다.
+실제 네트워크 저장은 아래 세 시점에만 일어난다 — 교사가 체크박스를 누를 때마다 매번 서버 왕복을 만들지
+않기 위함이다.
+
+1. **반/날짜 전환, 학생↔교사 탭 전환, 화면 이탈(언마운트)** — `app/actions/attendance.ts` → `saveAttendanceBatch({ date, entries })`. `StudentAttendancePanel`의 반/날짜 조회 `useEffect` cleanup에서 호출하므로, 그 시점까지 쌓인 변경분이 "그 반/날짜" 기준으로 빠짐없이 전송된다.
+2. **브라우저 탭을 숨기거나 페이지가 사라질 때**(다른 앱 전환, 새로고침, 닫기) — Server Action은 언로드 시점에 응답을 기다릴 수 없어 신뢰할 수 없으므로, `navigator.sendBeacon('/api/attendance/flush', ...)`로 보낸다. `visibilitychange`(hidden)·`pagehide` 두 이벤트에서 모두 쏜다.
+3. **"출석 종료" 버튼** — 아래 참고.
 
 ```ts
-type SaveAttendanceStatusParams = {
+// lib/db/attendance.ts
+type AttendanceBatchEntry = {
   studentId: string;
   classId: string; // 저장 시점 학생의 현재 반(= AttendanceViewRow.classId)
-  date: string;
   status: '출석' | '지각' | '결석' | '공예배';
+  comment: string | null;
 };
 
-type SaveAttendanceCommentParams = {
-  studentId: string;
-  classId: string;
-  date: string;
-  comment: string;
-};
+// app/actions/attendance.ts
+saveAttendanceBatch({ date, entries: AttendanceBatchEntry[] })          // 일반 플러시
+closeAttendanceAsAbsent({ date, students, entries: AttendanceBatchEntry[] })  // 출석 종료(아래)
 ```
 
-- 상태 버튼 탭 → `saveAttendanceStatus` 즉시 호출. 코멘트 입력 blur/디바운스(500ms) → `saveAttendanceComment` 호출.
-- 두 액션 모두 `lib/db/attendance.ts`의 upsert 헬퍼(`upsert(onConflict: 'date,student_id')`)를 통해서만 쓴다.
-- **upsert 시 감사 필드 보존 규칙**: `recorded_by`/`recorded_at`은 최초 insert 시에만 설정하고, 이후 conflict(update)에서는 절대 덮어쓰지 않는다. `last_modified_by`/`last_modified_at`만 매번 갱신한다.
+- 각 엔트리가 상태까지 포함한 "전체 값"이라(부분 필드 아님) `lib/db/attendance.ts`의 `upsertAttendanceBatch`는 매번 `status`를 함께 보낸다 — `attendance.status`가 `not null`이라 `ON CONFLICT DO UPDATE`로 끝나는 행이어도 Postgres가 INSERT 쪽 제안 튜플 전체의 not null 제약을 먼저 검증하기 때문에(코멘트만 따로 보내면 실패), 아예 상태를 안 보내는 부분 upsert는 쓰지 않는다. 코멘트는 상태가 있어야만 입력 가능하므로(화면이 보장) 상태가 null인 채로 큐에 들어오는 일이 없다.
+- `upsertAttendanceBatch`도 `upsert(onConflict: 'date,student_id')` 한 번으로 여러 행을 올린다. 이 편집은 명시적 교사 입력이므로 상대가 먼저 쓴 값이 있어도 그대로 덮어쓴다("과거 기록 수정에 잠금 없음, 마지막 저장이 이긴다" 원칙).
+- **감사 필드 보존 규칙은 그대로다**: `recorded_by`/`recorded_at`은 최초 insert 시에만 설정하고, 이후 conflict(update)에서는 DB 트리거(`attendance_set_audit_fields`, 0004 마이그레이션)가 되돌린다. `last_modified_by`/`last_modified_at`만 매번 갱신한다.
+- **sendBeacon 전용 엔드포인트**: `app/api/attendance/flush`(Route Handler). `lib/attendanceFlushBody.ts`가 payload 모양을 검증한다(브라우저가 페이지를 닫는 시점에 보내는 입력이라 Server Action처럼 타입을 신뢰할 수 없음). 인증은 `requireTeacher()`(미인증 시 `redirect()`를 던져 페이지 전용) 대신 `getAccess()`로 직접 판단해 401만 돌려준다 — beacon 응답은 아무도 읽지 않는다.
+- 클라이언트: 낙관적 UI로 먼저 버튼/코멘트를 반영한다. 플러시 실패 시에는 **로컬 값을 롤백하지 않는다** — 반/날짜를 바꾸거나 화면을 벗어나는 순간 되돌리면 교사가 방금 입력한 내용이 사라져 보이므로, 버퍼에 남겨 다음 플러시 때 재시도하고 토스트로만 실패를 알린다. (`출석 종료`의 "미체크 → 결석 자동 채움" 부분은 예외 — 그 부분만 실패 시 롤백한다. 상세는 아래.)
+- 각 행에 저장 대기 상태를 작게 표시한다(`변경됨`, 호박색) — 실시간 저장이 사라졌으므로 "저장 중" 스피너 대신 "아직 서버에 없음"을 알리는 용도. 요약 바에도 `저장 대기 N` 카운트를 보여준다.
 
-  ```sql
-  insert into attendance (date, class_id, student_id, status, comment, recorded_by, last_modified_by)
-  values ($date, $classId, $studentId, $status, $comment, $teacherId, $teacherId)
-  on conflict (date, student_id) do update set
-    status = coalesce(excluded.status, attendance.status),
-    comment = coalesce(excluded.comment, attendance.comment),
-    class_id = excluded.class_id,
-    last_modified_by = excluded.last_modified_by,
-    last_modified_at = now();
-  ```
+### "출석 종료" 버튼
 
-- 클라이언트: 낙관적 UI로 먼저 버튼/코멘트를 반영하고, 실패 시 이전 값으로 롤백 + 토스트로 에러 표시. 실패 처리 없이 호출하지 않는다(CLAUDE.md 공통 원칙).
-- 각 행에 저장 상태를 작게 표시(저장 중 스피너 → 사라짐), 성공은 조용히 처리하고 실패만 눈에 띄게 표시한다.
+요약 바 오른쪽의 버튼(관리자/교사만, 목사님은 읽기 전용이라 숨김). 누르면 확인창 뒤 두 가지를 한 번에 한다:
+
+1. 그때까지 버퍼에 쌓여 있던 명시적 변경분(`entries`)을 먼저 반영 — 보통 플러시 트리거(①②)를 기다리지 않고 그 자리에서 즉시 저장하고 싶을 때도 이 버튼으로 할 수 있다(이 경우 미체크 학생이 없으면 확인창 없이 바로 저장).
+2. 그래도 미체크(`status === null`)로 남은 학생을 결석으로 채움(`students`) — `insertMissingAttendance`가 `ignoreDuplicates`로 처리해 그 사이 다른 교사가 먼저 저장한 기록은 덮어쓰지 않는다.
+
+두 부분은 `closeAttendanceAsAbsent` 한 번의 Server Action 호출로 함께 전송된다. 1번(명시적 변경분)은 실패해도
+롤백하지 않고 버퍼에 남겨 재시도하지만, 2번(자동 결석 채움)은 버튼을 누른 교사의 그 순간 의도이므로 실패 시
+화면에 반영했던 결석 표시를 롤백한다.
 
 ## 에러/로딩 상태
 
@@ -165,5 +172,5 @@ type SaveAttendanceCommentParams = {
 ## 이 화면에서 다루지 않는 것 (범위 밖)
 
 - 통계·월간 집계(P3) — 이 화면은 그날 하루의 입력/조회만 담당.
-- 미체크를 실제 DB에 `결석`으로 자동 기록하는 배치/크론 — 현재는 화면상 시각적 인지까지만. 통계 단계에서 미체크를 어떻게 집계할지는 [CLAUDE.md](../../CLAUDE.md) P3 작업 시 별도 결정.
+- 미체크를 **자동으로**(크론·배치) `결석`으로 기록하는 동작 — 교사가 "출석 종료" 버튼을 눌러야만 기록된다(위 "출석 종료 버튼" 참고). 아무도 버튼을 누르지 않으면 미체크 행은 계속 레코드 없음 상태로 남는다. 통계 단계에서 이 경우를 어떻게 집계할지는 [CLAUDE.md](../../CLAUDE.md) P3 작업 시 별도 결정.
 - **엑셀로 내보내기 버튼** — 원래 이 화면(P1)에 포함이었으나, P3 화면들(통계 등)과 함께 한 번에 설계하기로 변경. P3 설계 시 이 화면 하단에 다시 추가될 예정이며, 그때 [data-model-guide.md#엑셀-내보내기-쿼리-가이드](../data-model-guide.md#엑셀-내보내기-쿼리-가이드)를 참고해 `lib/xlsx.ts` 공통 헬퍼로 구현한다.
