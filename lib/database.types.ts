@@ -139,6 +139,100 @@ export type Database = {
           },
         ]
       }
+      class_review_replies: {
+        Row: {
+          body: string
+          created_at: string
+          created_by: string
+          id: string
+          review_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          created_by: string
+          id?: string
+          review_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          review_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_review_replies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_review_replies_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "class_weekly_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      class_weekly_reviews: {
+        Row: {
+          body: string
+          class_id: string
+          id: string
+          last_modified_at: string
+          last_modified_by: string
+          recorded_at: string
+          recorded_by: string
+          week_start: string
+        }
+        Insert: {
+          body?: string
+          class_id: string
+          id?: string
+          last_modified_at?: string
+          last_modified_by: string
+          recorded_at?: string
+          recorded_by: string
+          week_start: string
+        }
+        Update: {
+          body?: string
+          class_id?: string
+          id?: string
+          last_modified_at?: string
+          last_modified_by?: string
+          recorded_at?: string
+          recorded_by?: string
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_weekly_reviews_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_weekly_reviews_last_modified_by_fkey"
+            columns: ["last_modified_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_weekly_reviews_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       classes: {
         Row: {
           created_at: string
@@ -449,6 +543,13 @@ export type Database = {
         Args: never
         Returns: {
           class_names: string[]
+          id: string
+          name: string
+        }[]
+      }
+      list_teacher_names: {
+        Args: { ids: string[] }
+        Returns: {
           id: string
           name: string
         }[]

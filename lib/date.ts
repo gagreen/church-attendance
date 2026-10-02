@@ -63,6 +63,22 @@ export function formatDateDotted(dateStr: string): string {
   return `${y}.${m}.${d}`;
 }
 
+// timestamptz ISO 문자열을 KST 기준 'M.D 오전/오후 h:mm'로 표기한다(반별 주간 총평 "마지막 수정",
+// 목사님 답글 타임스탬프용). 연도는 생략한다 — 두 기능 모두 최근 몇 주 안의 기록만 다룬다.
+export function formatDateTimeLabel(isoString: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: KST_TIME_ZONE,
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(new Date(isoString));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  const ampm = get('dayPeriod') === 'PM' ? '오후' : '오전';
+  return `${get('month')}.${get('day')} ${ampm} ${get('hour')}:${get('minute')}`;
+}
+
 // 캘린더 그리드용 날짜 목록(6주 x 7일 = 42칸, 앞뒤 달 날짜로 채움). month는 1~12.
 export function calendarMonthGrid(year: number, month: number): { date: string; inMonth: boolean }[] {
   const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));

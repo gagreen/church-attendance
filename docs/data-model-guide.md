@@ -119,6 +119,26 @@ create table teacher_invite_classes (
   class_id uuid not null references classes(id) on delete cascade,
   primary key (invite_id, class_id)
 );
+
+-- 0009_weekly_review.sql: 반별 주간 총평(반·주당 1건, 공동 작성) + 목사님 답글. docs/screens/weekly-review.md.
+create table class_weekly_reviews (
+  id uuid primary key default gen_random_uuid(),
+  week_start date not null check (extract(dow from week_start) = 0), -- 항상 일요일
+  class_id uuid not null references classes(id),
+  body text not null default '' check (char_length(body) <= 3000),
+  recorded_by uuid not null references teachers(id),
+  recorded_at timestamptz not null default now(),
+  last_modified_by uuid not null references teachers(id),
+  last_modified_at timestamptz not null default now(),
+  unique (week_start, class_id)
+);
+create table class_review_replies (
+  id uuid primary key default gen_random_uuid(),
+  review_id uuid not null references class_weekly_reviews(id),
+  body text not null check (char_length(body) between 1 and 2000),
+  created_by uuid not null references teachers(id),
+  created_at timestamptz not null default now()
+);
 ```
 
 ### 컬럼 설명이 필요한 부분
@@ -133,6 +153,8 @@ create table teacher_invite_classes (
 - `teachers` 마지막 활성 관리자 보호: `teachers_guard_last_admin_trigger`가 활성 관리자를 0명으로 만드는 `role`/`is_active` 변경을 막는다(`last_active_admin` 예외).
 - `classes.name`은 `lower(btrim(name))` 기준으로 유일하다(`classes_name_key`, 비활성 반 포함).
 - `classes`에는 담당 교사 컬럼을 두지 않는다. "이 반 담당 교사가 누구인지"는 `teacher_classes` 조인으로 구한다.
+- `class_weekly_reviews` 행은 삭제하지 않는다(delete 미부여) — 답글이 FK로 걸려 있어 행이 사라지면 답글이 유실되기 때문이다. 내용을 지우면 빈 문자열(`body = ''`)로 남고, 화면은 이를 "총평 없음"으로 취급한다.
+- 총평 마지막 수정자·답글 작성자 이름은 `list_teacher_names(ids uuid[])`(security definer, 0009)로만 읽는다 — `teachers_select_self`가 본인·관리자만 조회를 허용해서(아래 RLS 정책 참고), 다른 사람이 쓴 총평/답글의 작성자 이름을 일반 교사·목사님이 직접 조인으로 읽을 수 없기 때문이다(`list_attendance_teachers`, 0008과 같은 이유). id/이름만 반환하고 이메일 등은 노출하지 않는다.
 
 ### 인덱스
 

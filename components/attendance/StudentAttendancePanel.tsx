@@ -11,6 +11,7 @@ import {
   type AttendanceViewRow,
 } from '@/app/actions/attendance';
 import { StudentRow } from './StudentRow';
+import { WeeklyReviewPanel } from './WeeklyReviewPanel';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -238,6 +239,16 @@ export function StudentAttendancePanel({
               />
             ))}
           </ul>
+        )}
+
+        {/* '전체' 보기에서는 어느 반의 총평인지 모호해지므로 숨긴다(docs/screens/weekly-review.md). */}
+        {classId !== 'all' && (
+          <WeeklyReviewPanel
+            classId={classId}
+            className={initialContext.classOptions.find((c) => c.id === classId)?.name ?? ''}
+            date={date}
+            readOnly={readOnly}
+          />
         )}
       </div>
 

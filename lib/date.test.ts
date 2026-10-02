@@ -6,6 +6,7 @@ import {
   calendarMonthGrid,
   formatDateDotted,
   formatDateLabel,
+  formatDateTimeLabel,
   formatMonthLabel,
   isSunday,
   isValidMonth,
@@ -75,6 +76,13 @@ describe('formatDateDotted', () => {
 
   it('timestamptz ISO 문자열도 날짜 부분만 변환', () => {
     expect(formatDateDotted('2026-08-15T10:23:00.000Z')).toBe('2026.08.15');
+  });
+});
+
+describe('formatDateTimeLabel', () => {
+  it('KST 기준 오전/오후 h:mm로 변환한다', () => {
+    expect(formatDateTimeLabel('2026-09-28T02:20:00.000Z')).toBe('9.28 오전 11:20'); // UTC+9
+    expect(formatDateTimeLabel('2026-09-28T06:10:00.000Z')).toBe('9.28 오후 3:10');
   });
 });
 
