@@ -8,13 +8,14 @@
 교회 주일학교용 출석 관리 웹앱. 반 6개 · 학생 20명 · 교사 6~8명 규모, 비상업적(교회 내부용) 운영.
 **운영비 0원**이 설계의 최우선 제약이며, Next.js(App Router, TypeScript) + Supabase(Postgres, Auth) + Vercel 조합으로 각 서비스의 무료 티어만으로 구축한다.
 
-현재 상태: Next.js + Supabase + Vercel, 앱 대부분이 구현되어 있다. Supabase 프로젝트(리전 `ap-northeast-2`)는 생성·연결되어 있고 GitHub(`gagreen/church-attendance`) 저장소로 관리한다.
+현재 상태: Next.js + Supabase + Vercel, 앱 대부분이 구현되어 있고 운영 배포까지 완료되었다. Supabase 프로젝트(리전 `ap-northeast-2`)는 생성·연결되어 있고 GitHub(`gagreen/church-attendance`) 저장소로 관리하며, Vercel 프로젝트가 이 저장소에 연결되어 `main` 브랜치 push 시 자동 배포된다(Vercel 기본 도메인 사용 중). Vercel Analytics(`@vercel/analytics`)가 연결되어 있다.
 
 - **구현 완료**: 로그인(Google OAuth·콜백·화이트리스트, 설정 절차 [docs/auth-setup.md](docs/auth-setup.md)), 출석 입력 화면(`/`), 학생 상세(`/students/[id]`), 통계(`/statistics`)와 통계 엑셀 내보내기(`/statistics/export`), 교사 전체 조회 스위치.
 - **마스터 관리(설정) 화면 구현 완료**: `/settings`(관리자 전용, 상단 메뉴의 "설정") — 교사·학생·반 탭, 교사 초대(첫 로그인 시 자동 활성화), 전역 설정(`teachers_can_view_all`, `show_late_button`). 마이그레이션 `0007`이 필요하다. 설계: [docs/screens/master-management.md](docs/screens/master-management.md).
 - **교사 출석 구현 완료**: 출석 입력 화면(`/`)의 `학생 | 교사` 탭에서 교사(`role='teacher'`) 출석을 기록한다. 마이그레이션 `0008`이 필요하다. 설계: [docs/screens/teacher-attendance.md](docs/screens/teacher-attendance.md).
 - **반별 주간 총평 · 주별 모아보기 구현 완료**: 출석 입력 화면(`/`) 학생 탭 하단의 반별 주간 총평(반·주당 1건 공동 작성) · 통계(`/statistics`) 기본 화면인 주별 모아보기(반별 출석·코멘트·총평 + 목사님 답글, 기존 월간 통계는 `월별` 서브 탭). 마이그레이션 `0009`가 필요하다. 설계: [docs/screens/weekly-review.md](docs/screens/weekly-review.md).
-- **아직 안 된 것**: 출석 기록 원본 엑셀 내보내기(통계 리포트만 구현됨), 교사 출석의 통계·엑셀·이력 화면, 주별 모아보기 엑셀 내보내기, Vercel 배포 연결(`.vercel` 없음), 마이그레이션 `0007`·`0008`·`0009`의 프로덕션 적용(`supabase db push`; `0001`~`0006`은 적용됨), 적용 후 `lib/database.types.ts` 재생성(현재 `teacher_attendance`·`class_weekly_reviews`·`class_review_replies` 타입은 수기 추가분).
+- **아직 안 된 것**: 출석 기록 원본 엑셀 내보내기(통계 리포트만 구현됨), 교사 출석의 통계·엑셀·이력 화면, 주별 모아보기 엑셀 내보내기, Supabase Auth Redirect URL에 Vercel 프로덕션 도메인 등록 확인, 프로덕션 최초 관리자 계정(`teachers`) 등록.
+- 마이그레이션 `0001`~`0009` 전부 프로덕션에 적용 완료, `lib/database.types.ts`도 적용 후 재생성·커밋되어 더 이상 수기 추가분이 아니다.
 
 이 문서와 `docs/data-model-guide.md`, `docs/screens/*.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
 
@@ -43,7 +44,7 @@ Supabase Postgres (관리형 DB)
 - 로컬 개발은 Node.js + Next.js 개발 서버(Next.js 16, React 19, Tailwind 4)를 쓴다. Next.js 16은 기존 지식과 다른 점이 있으므로(예: `middleware.ts` 대신 `proxy.ts`) 코드를 쓰기 전 `AGENTS.md`의 안내대로 `node_modules/next/dist/docs/`를 확인한다.
 - 이미 셋업된 저장소를 처음 받았을 때: `npm install` → `.env.local.example`을 `.env.local`로 복사해 Supabase 대시보드(Project Settings → API) 값을 채움 → `supabase login` → `supabase link --project-ref <project-ref>` → `npm run dev`. 값이 비어 있으면 `proxy.ts`가 모든 요청에서 에러를 낸다(의도된 동작).
 - 로그인 동작 확인에는 Google Cloud OAuth 클라이언트 발급과 Supabase의 Google 프로바이더·Redirect URL 등록이 필요하다 — [docs/auth-setup.md](docs/auth-setup.md)를 따른다. 스키마 초기 세팅 순서는 `docs/data-model-guide.md`의 "Supabase 초기 세팅 체크리스트"를 따른다.
-- 배포(미완료)는 Vercel 프로젝트를 만들고 GitHub 저장소를 Import한 뒤 환경변수(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)를 등록하고, 프로덕션 도메인을 Supabase Redirect URLs에 추가한다.
+- 배포는 완료됨: Vercel 프로젝트에 GitHub 저장소를 연결하고 환경변수(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)를 Production에 등록했다. 프로덕션 도메인을 Supabase Redirect URLs에 추가하는 작업은 확인이 더 필요하다(위 "아직 안 된 것" 참고).
 - 로컬 DB는 Supabase CLI의 로컬 환경(`supabase start`, Docker 필요)을 쓴다. `supabase db reset`을 하면 마이그레이션 적용 후 `supabase/seed.sql`이 자동 실행된다 — 반 6개·학생 20명·테스트 교사 5명(관리자 1·교사 3·목사님 1)의 **로컬 전용 더미 데이터**이며 프로덕션에는 절대 실행하지 않는다.
 - Supabase의 `project-ref`, API 키 등 프로젝트별 민감정보는 `.env.local`에만 두고 `.gitignore`에 포함해 커밋하지 않는다. 대신 `.env.local.example`을 키 이름만 채운 템플릿으로 커밋해 둔다. `supabase/.temp`(link 캐시)도 커밋하지 않는다.
 - 로컬 저장소에는 앱 코드(`app/`, `lib/`, `components/`)와 `supabase/migrations/*.sql`(스키마 버전 관리), `docs/`만 존재한다. 실제 DB 데이터와 Auth 사용자 목록은 Supabase 클라우드 프로젝트에 있다.
@@ -147,6 +148,7 @@ P3 범위(통계, 마스터 관리 UI)를 P1 작업 중에 먼저 구현하려 �
 ## 특이사항 · 주의할 점
 
 - Google OAuth를 쓰려면 Google Cloud Console에서 OAuth 클라이언트를 만들고 Supabase Auth 설정(Providers → Google)에 연결해야 한다. 리디렉션 URL은 로컬 개발용과 Vercel 프로덕션용을 모두 등록해야 한다.
+- `next`는 `next/og`의 critical RCE 취약점(GHSA-vcvr-r3jv-pc5j, 16.2.0~16.3.5 영향)이 패치된 `16.3.8` 이상으로 고정해 둔다 — 이보다 낮은 버전으로 내리지 않는다.
 - Vercel Hobby 플랜은 비상업적 프로젝트 전용이다 — 이 프로젝트는 교회 내부용 비상업적 도구이므로 문제 없지만, 향후 유료 서비스화 등으로 성격이 바뀌면 재검토가 필요하다.
 - Supabase 무료 프로젝트는 장기간(약 1주일+) 미사용 시 일시정지된다는 점을 감안해, 방학 등 장기간 앱을 안 쓰는 기간이 생기면 첫 접속이 느릴 수 있음을 인지하고 있을 것.
 - RLS 정책을 잘못 설정하면 "테이블은 있는데 아무것도 안 보이는" 문제가 흔하다 — 정책 추가/변경 시 반드시 교사 계정과 관리자 계정 양쪽으로 실제 조회/쓰기를 확인한다.
