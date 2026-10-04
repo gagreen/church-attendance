@@ -41,6 +41,7 @@ export type TeacherInviteRow = {
   name: string;
   role: TeacherRole;
   classIds: string[];
+  attendanceCount: number; // 취소하면 함께 삭제되는 가입 전 출석 기록 수(teacher_attendance.invite_id)
 };
 
 function groupBy<T, K extends string>(rows: T[], key: (row: T) => K, value: (row: T) => string): Map<K, string[]> {
@@ -81,14 +82,21 @@ export async function listTeachersForAdmin(): Promise<TeacherAdminRow[]> {
 export async function listInvitesForAdmin(): Promise<TeacherInviteRow[]> {
   const supabase = await createClient();
 
-  const [{ data: invites, error }, { data: mappings, error: mappingsError }] = await Promise.all([
-    supabase.from('teacher_invites').select('id, email, name, role').order('invited_at', { ascending: true }),
-    supabase.from('teacher_invite_classes').select('invite_id, class_id'),
-  ]);
+  const [{ data: invites, error }, { data: mappings, error: mappingsError }, { data: records, error: recordsError }] =
+    await Promise.all([
+      supabase.from('teacher_invites').select('id, email, name, role').order('invited_at', { ascending: true }),
+      supabase.from('teacher_invite_classes').select('invite_id, class_id'),
+      supabase.from('teacher_attendance').select('invite_id').not('invite_id', 'is', null),
+    ]);
   if (error) throw new Error(`teacher_invites 조회 실패: ${error.message}`);
   if (mappingsError) throw new Error(`teacher_invite_classes 조회 실패: ${mappingsError.message}`);
+  if (recordsError) throw new Error(`teacher_attendance 조회 실패: ${recordsError.message}`);
 
   const classIdsByInvite = groupBy(mappings ?? [], (m) => m.invite_id, (m) => m.class_id);
+  const recordCountByInvite = new Map<string, number>();
+  for (const r of records ?? []) {
+    if (r.invite_id) recordCountByInvite.set(r.invite_id, (recordCountByInvite.get(r.invite_id) ?? 0) + 1);
+  }
 
   return (invites ?? []).map((i) => ({
     id: i.id,
@@ -96,6 +104,7 @@ export async function listInvitesForAdmin(): Promise<TeacherInviteRow[]> {
     name: i.name,
     role: i.role as TeacherRole,
     classIds: classIdsByInvite.get(i.id) ?? [],
+    attendanceCount: recordCountByInvite.get(i.id) ?? 0,
   }));
 }
 

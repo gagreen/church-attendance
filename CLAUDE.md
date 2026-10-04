@@ -15,7 +15,7 @@
 - **교사 출석 구현 완료**: 출석 입력 화면(`/`)의 `학생 | 교사` 탭에서 교사(`role='teacher'`) 출석을 기록한다. 마이그레이션 `0008`이 필요하다. 설계: [docs/screens/teacher-attendance.md](docs/screens/teacher-attendance.md).
 - **반별 주간 총평 · 주별 모아보기 구현 완료**: 출석 입력 화면(`/`) 학생 탭 하단의 반별 주간 총평(반·주당 1건 공동 작성) · 통계(`/statistics`) 기본 화면인 주별 모아보기(반별 출석·코멘트·총평 + 목사님 답글, 기존 월간 통계는 `월별` 서브 탭). 마이그레이션 `0009`가 필요하다. 설계: [docs/screens/weekly-review.md](docs/screens/weekly-review.md).
 - **아직 안 된 것**: 출석 기록 원본 엑셀 내보내기(통계 리포트만 구현됨), 교사 출석의 통계·엑셀·이력 화면, 주별 모아보기 엑셀 내보내기, Supabase Auth Redirect URL에 Vercel 프로덕션 도메인 등록 확인, 프로덕션 최초 관리자 계정(`teachers`) 등록.
-- 마이그레이션 `0001`~`0009` 전부 프로덕션에 적용 완료, `lib/database.types.ts`도 적용 후 재생성·커밋되어 더 이상 수기 추가분이 아니다.
+- 마이그레이션 `0010`(가입 전 교사 출석)은 로컬 검증 완료, 프로덕션 `supabase db push` 대기 중이다. `0001`~`0009`는 프로덕션에 적용 완료, `lib/database.types.ts`도 적용 후 재생성·커밋되어 더 이상 수기 추가분이 아니다.
 
 이 문서와 `docs/data-model-guide.md`, `docs/screens/*.md`가 앞으로 작성될 모든 코드가 따라야 할 확정 사양이다.
 
@@ -42,11 +42,11 @@ Supabase Postgres (관리형 DB)
 ## 개발 환경 설정
 
 - 로컬 개발은 Node.js + Next.js 개발 서버(Next.js 16, React 19, Tailwind 4)를 쓴다. Next.js 16은 기존 지식과 다른 점이 있으므로(예: `middleware.ts` 대신 `proxy.ts`) 코드를 쓰기 전 `AGENTS.md`의 안내대로 `node_modules/next/dist/docs/`를 확인한다.
-- 이미 셋업된 저장소를 처음 받았을 때: `npm install` → `.env.local.example`을 `.env.local`로 복사해 Supabase 대시보드(Project Settings → API) 값을 채움 → `supabase login` → `supabase link --project-ref <project-ref>` → `npm run dev`. 값이 비어 있으면 `proxy.ts`가 모든 요청에서 에러를 낸다(의도된 동작).
+- 이미 셋업된 저장소를 처음 받았을 때: `npm install` → `.env.example`을 `.env.development`(로컬 Supabase, `supabase status` 값)과 `.env.production`(프로덕션 Supabase 대시보드 Project Settings → API 값)로 각각 복사해 채움 — Next.js가 `npm run dev`에서는 development, `npm run build`/`npm start`에서는 production 파일을 자동으로 로드한다 → `supabase login` → `supabase link --project-ref <project-ref>` → `npm run dev`. 값이 비어 있으면 `proxy.ts`가 모든 요청에서 에러를 낸다(의도된 동작).
 - 로그인 동작 확인에는 Google Cloud OAuth 클라이언트 발급과 Supabase의 Google 프로바이더·Redirect URL 등록이 필요하다 — [docs/auth-setup.md](docs/auth-setup.md)를 따른다. 스키마 초기 세팅 순서는 `docs/data-model-guide.md`의 "Supabase 초기 세팅 체크리스트"를 따른다.
 - 배포는 완료됨: Vercel 프로젝트에 GitHub 저장소를 연결하고 환경변수(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)를 Production에 등록했다. 프로덕션 도메인을 Supabase Redirect URLs에 추가하는 작업은 확인이 더 필요하다(위 "아직 안 된 것" 참고).
 - 로컬 DB는 Supabase CLI의 로컬 환경(`supabase start`, Docker 필요)을 쓴다. `supabase db reset`을 하면 마이그레이션 적용 후 `supabase/seed.sql`이 자동 실행된다 — 반 6개·학생 20명·테스트 교사 5명(관리자 1·교사 3·목사님 1)의 **로컬 전용 더미 데이터**이며 프로덕션에는 절대 실행하지 않는다.
-- Supabase의 `project-ref`, API 키 등 프로젝트별 민감정보는 `.env.local`에만 두고 `.gitignore`에 포함해 커밋하지 않는다. 대신 `.env.local.example`을 키 이름만 채운 템플릿으로 커밋해 둔다. `supabase/.temp`(link 캐시)도 커밋하지 않는다.
+- Supabase의 `project-ref`, API 키 등 프로젝트별 민감정보는 `.env.development`/`.env.production`에만 두고(`.env.local`은 모든 모드에 로드되므로 쓰지 않는다) `.gitignore`에 포함해 커밋하지 않는다. 대신 `.env.example`을 키 이름만 채운 템플릿으로 커밋해 둔다. `supabase/.temp`(link 캐시)도 커밋하지 않는다.
 - 로컬 저장소에는 앱 코드(`app/`, `lib/`, `components/`)와 `supabase/migrations/*.sql`(스키마 버전 관리), `docs/`만 존재한다. 실제 DB 데이터와 Auth 사용자 목록은 Supabase 클라우드 프로젝트에 있다.
 
 ## 자주 쓰는 명령어
@@ -87,7 +87,7 @@ supabase gen types typescript --linked > lib/database.types.ts   # 스키마 변
 | `student_notes`      | 학생 프로필 메모 (날짜 무관, 지속 특이사항)                       | id, student_id, note, created_by, created_at                                                                  |
 | `teachers`           | 교사 마스터 · 로그인 화이트리스트                                 | id (auth.users.id), email, name, role, is_active                                                              |
 | `teacher_classes`    | 교사 ↔ 반 매핑 (다대다)                                           | teacher_id, class_id                                                                                          |
-| `teacher_attendance` | 교사 출석 기록 (1행 = 1교사×1일, 학생 `attendance`와 별도 테이블) | id, date, teacher_id, status, comment, recorded_by, recorded_at, last_modified_by, last_modified_at           |
+| `teacher_attendance` | 교사 출석 기록 (1행 = 1교사(또는 가입 전 초대)×1일, 학생 `attendance`와 별도 테이블) | id, date, teacher_id \| invite_id, status, comment, recorded_by, recorded_at, last_modified_by, last_modified_at           |
 | `app_settings`       | 전역 설정 (단일 행)                                               | id (항상 true), teachers_can_view_all, updated_by, updated_at                                                 |
 | `class_weekly_reviews` | 반별 주간 총평 (반·주당 1건, 공동 작성)                         | id, week_start, class_id, body, recorded_by, recorded_at, last_modified_by, last_modified_at                  |
 | `class_review_replies` | 총평에 대한 목사님 답글 (시간순 다건)                           | id, review_id, body, created_by, created_at                                                                   |
@@ -104,7 +104,7 @@ supabase gen types typescript --linked > lib/database.types.ts   # 스키마 변
 - **관리자** (복수 가능): 전체 반·학생 조회/통계, 교사·학생 마스터 관리, 모든 기록 수정 가능. `app_settings.teachers_can_view_all` 스위치도 관리자만 바꾼다.
 - **교사**: 기본(`teachers_can_view_all = true`)으로는 모든 반·학생을 조회하고 출석을 입력·수정할 수 있다(학생 전체보기 포함). 관리자가 스위치를 끄면 `teacher_classes`에 매핑된 담당 반만 가능하다. 스위치는 전체 교사 일괄 적용이며 교사별 개별 설정은 없다. 읽기·쓰기 권한은 분리하지 않는다. `student_notes`와 `attendance.comment`도 같은 범위로 공개된다.
 - **목사님** (`role='pastor'`, `teachers` 테이블에 등록): 모든 학생의 출석·코멘트·메모를 **조회/수정** 할 수 있다.
-- **교사 출석**: 관리 대상은 활성 `role='teacher'`뿐이고, 로그인한 활성 사용자 전원(교사·관리자·목사님)이 어떤 교사의 출석이든 입력·수정·조회할 수 있다(본인 체크인과 대리 입력을 구분하지 않음). 반에 종속되지 않으므로 `teachers_can_view_all`·`can_access_class`와 무관하며, 대상 검증은 RLS(`is_attendance_teacher`)가 한다. 교사 명단은 `teachers`가 본인·관리자만 조회 가능해 `list_attendance_teachers()`(security definer)로만 읽는다.
+- **교사 출석**: 관리 대상은 활성 `role='teacher'`와 아직 로그인하지 않은 `role='teacher'` 초대(가입 전 교사, 기록은 `invite_id`로 저장 후 첫 로그인 때 `teacher_id`로 이관, 초대 취소 시 기록도 삭제)이고, 로그인한 활성 사용자 전원(교사·관리자·목사님)이 어떤 교사의 출석이든 입력·수정·조회할 수 있다(본인 체크인과 대리 입력을 구분하지 않음). 반에 종속되지 않으므로 `teachers_can_view_all`·`can_access_class`와 무관하며, 대상 검증은 RLS(`is_attendance_teacher`)가 한다. 교사 명단은 `teachers`가 본인·관리자만 조회 가능해 `list_attendance_teachers()`(security definer)로만 읽는다.
 - 로그인 사용자가 `teachers` 테이블에 없으면 접근 차단 (화이트리스트 방식, 자체 회원가입 없음). Supabase Auth 자체는 Google 계정이면 누구나 로그인에 성공할 수 있으므로, 반드시 애플리케이션 레벨(및 RLS 정책)에서 `teachers.is_active` 여부를 확인해 차단한다.
 - 권한은 애플리케이션 코드뿐 아니라 **Supabase RLS(Row Level Security) 정책으로 DB 레벨에서도 이중으로 강제**한다 — Server Action에서의 권한 체크가 누락되더라도 DB가 잘못된 접근을 막아주는 것이 Postgres 전환의 핵심 이점이다.
 - **과거 기록 수정에 잠금이 없다** — 모든 교사가 지난 날짜 기록을 자유롭게 수정할 수 있는 것이 확정된 설계다. 이를 막는 잠금/승인 로직을 임의로 추가하지 않는다. 대신 감사 추적을 위해 `attendance`에 `last_modified_by`/`last_modified_at` 컬럼을 둔다 — 최초 입력 시 `recorded_*`와 동일값, 이후 수정 시에만 갱신.

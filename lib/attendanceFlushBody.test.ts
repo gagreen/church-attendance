@@ -15,9 +15,33 @@ describe('parseAttendanceFlushBody', () => {
     const body = {
       kind: 'teacher',
       date: '2026-09-27',
-      entries: [{ teacherId: 't1', status: '결석', comment: '감기' }],
+      entries: [{ target: { teacherId: 't1' }, status: '결석', comment: '감기' }],
     };
-    expect(parseAttendanceFlushBody(body)).toEqual(body);
+    expect(parseAttendanceFlushBody(body)).toEqual({
+      kind: 'teacher',
+      date: '2026-09-27',
+      entries: [{ target: { teacherId: 't1' }, status: '결석', comment: '감기' }],
+    });
+  });
+
+  it('가입 전 교사(inviteId) 엔트리를 허용한다', () => {
+    const body = {
+      kind: 'teacher',
+      date: '2026-09-27',
+      entries: [{ target: { inviteId: 'i1' }, status: '출석', comment: null }],
+    };
+    expect(parseAttendanceFlushBody(body)).toEqual({
+      kind: 'teacher',
+      date: '2026-09-27',
+      entries: [{ target: { inviteId: 'i1' }, status: '출석', comment: null }],
+    });
+  });
+
+  it('teacherId와 inviteId가 둘 다 있거나 둘 다 없으면 null', () => {
+    const both = { kind: 'teacher', date: '2026-09-27', entries: [{ target: { teacherId: 't1', inviteId: 'i1' }, status: '출석', comment: null }] };
+    const neither = { kind: 'teacher', date: '2026-09-27', entries: [{ target: {}, status: '출석', comment: null }] };
+    expect(parseAttendanceFlushBody(both)).toBeNull();
+    expect(parseAttendanceFlushBody(neither)).toBeNull();
   });
 
   it('entries가 빈 배열이어도 허용한다', () => {
@@ -55,7 +79,7 @@ describe('parseAttendanceFlushBody', () => {
     const body = {
       kind: 'teacher',
       date: '2026-09-27',
-      entries: [{ teacherId: 't1', status: '조퇴', comment: null }],
+      entries: [{ target: { teacherId: 't1' }, status: '조퇴', comment: null }],
     };
     expect(parseAttendanceFlushBody(body)).toBeNull();
   });
@@ -64,7 +88,7 @@ describe('parseAttendanceFlushBody', () => {
     const body = {
       kind: 'teacher',
       date: '2026-09-27',
-      entries: [{ teacherId: 't1', status: '출석' }],
+      entries: [{ target: { teacherId: 't1' }, status: '출석' }],
     };
     expect(parseAttendanceFlushBody(body)).toBeNull();
   });

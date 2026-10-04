@@ -82,6 +82,8 @@ create table student_notes (
 );
 
 -- 0008_teacher_attendance.sql: 교사 출석 (1행 = 1교사 × 1일). 학생 attendance와 섞지 않는다(통계 오염 방지).
+-- 0010: teacher_id는 nullable이 되고 invite_id(teacher_invites 참조, on delete cascade)가 추가된다. 정확히 하나만 채운다.
+-- 가입 전 교사 기록은 invite_id로 남고 첫 로그인 때 claim_teacher_invite()가 teacher_id로 옮긴다.
 -- class_id는 두지 않는다(교사는 여러 반을 맡을 수 있고 "당시 담당 반"을 남길 실익이 없음).
 create table teacher_attendance (
   id uuid primary key default gen_random_uuid(),

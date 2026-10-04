@@ -73,7 +73,7 @@ create table teacher_invite_classes (
    - 없으면 로그인한 이메일로 `teacher_invites`를 조회. 매칭되는 초대가 있으면 트랜잭션으로 `teachers`에 새 row를 만들고(`id`=방금 로그인한 `auth.users.id`, 나머지는 초대 정보로 채움, `is_active=true`), `teacher_invite_classes` 내용을 `teacher_classes`로 옮기고, 해당 `teacher_invites` row를 삭제한다.
    - 매칭되는 초대도 없으면 기존과 동일하게 접근 차단.
    - 구현: `claim_teacher_invite()` RPC(security definer, 0007)를 `completeSignIn`이 호출한다. 함수는 본인(`auth.uid()`)의 확인된 이메일과 일치하는 초대 1건만 처리하고, 이미 `teachers`에 있는 사용자(비활성 포함)는 건드리지 않는다.
-3. 아직 로그인하지 않은 초대는 "초대 대기 중" 섹션에 별도로 보여주고, 관리자가 "초대 취소"로 `teacher_invites`에서 삭제할 수 있다.
+3. 아직 로그인하지 않은 초대는 "초대 대기 중" 섹션에 별도로 보여주고, 관리자가 "초대 취소"로 `teacher_invites`에서 삭제할 수 있다. 가입 전 출석 기록(`teacher_attendance.invite_id`)이 있으면 취소 확인창에 그 건수를 표시하고, 취소 시 기록도 함께 삭제된다(0010, `on delete cascade`).
 
 ### 데이터 계약
 

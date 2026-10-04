@@ -54,7 +54,11 @@ export function TeachersTab({
   }
 
   async function handleCancelInvite(invite: TeacherInviteRow) {
-    if (!window.confirm(`${invite.email} 초대를 취소할까요?`)) return;
+    const warning =
+      invite.attendanceCount > 0
+        ? `\n\n이 교사의 가입 전 출석 기록 ${invite.attendanceCount}건도 함께 삭제됩니다.`
+        : '';
+    if (!window.confirm(`${invite.email} 초대를 취소할까요?${warning}`)) return;
     await run(() => cancelInvite({ inviteId: invite.id }));
   }
 

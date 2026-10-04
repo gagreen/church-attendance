@@ -336,36 +336,46 @@ export type Database = {
           comment: string | null
           date: string
           id: string
+          invite_id: string | null
           last_modified_at: string
           last_modified_by: string
           recorded_at: string
           recorded_by: string
           status: string
-          teacher_id: string
+          teacher_id: string | null
         }
         Insert: {
           comment?: string | null
           date: string
           id?: string
+          invite_id?: string | null
           last_modified_at?: string
           last_modified_by: string
           recorded_at?: string
           recorded_by: string
           status: string
-          teacher_id: string
+          teacher_id?: string | null
         }
         Update: {
           comment?: string | null
           date?: string
           id?: string
+          invite_id?: string | null
           last_modified_at?: string
           last_modified_by?: string
           recorded_at?: string
           recorded_by?: string
           status?: string
-          teacher_id?: string
+          teacher_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "teacher_attendance_invite_id_fkey"
+            columns: ["invite_id"]
+            isOneToOne: false
+            referencedRelation: "teacher_invites"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "teacher_attendance_last_modified_by_fkey"
             columns: ["last_modified_by"]
@@ -534,6 +544,10 @@ export type Database = {
       }
       current_role_name: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      is_attendance_invite: {
+        Args: { target_invite_id: string }
+        Returns: boolean
+      }
       is_attendance_teacher: {
         Args: { target_teacher_id: string }
         Returns: boolean
@@ -544,6 +558,7 @@ export type Database = {
         Returns: {
           class_names: string[]
           id: string
+          is_pending: boolean
           name: string
         }[]
       }
@@ -586,12 +601,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -615,11 +630,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -640,11 +655,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -665,11 +680,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -682,11 +697,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -703,3 +718,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

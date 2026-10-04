@@ -6,7 +6,7 @@
 
 | 항목 | 결정 |
 | --- | --- |
-| 대상 | `teachers.role = 'teacher'` 이고 `is_active = true` 인 사람만. 관리자·목사님은 출석 관리 대상이 아니다. |
+| 대상 | `teachers.role = 'teacher'` 이고 `is_active = true` 인 사람, 그리고 아직 로그인하지 않은 `role='teacher'` 교사 초대(가입 전 교사, `0010`). 관리자·목사님은 출석 관리 대상이 아니다. |
 | 기록 주체 | **로그인한 활성 사용자 전원**(교사·관리자·목사님)이 어떤 교사의 출석이든 입력·수정할 수 있다. 본인 체크인과 대리 입력을 구분하지 않는다. |
 | 상태 | 학생과 같은 4종(출석/지각/결석/공예배). 별도 상태를 만들지 않는다. |
 | 화면 | 출석 입력 화면(`/`)의 상단 탭. 별도 메뉴·라우트 없음. |
@@ -19,6 +19,8 @@
 - 과거 날짜 수정 잠금 없음, 감사 필드(`recorded_*`, `last_modified_*`)로 추적 — 학생 출석과 동일 원칙.
 
 ## 데이터 모델 — `0008_teacher_attendance.sql`
+
+> `0010`에서 `teacher_id`가 nullable이 되고 `invite_id`(가입 전 교사 초대)가 추가됐다. 아래 DDL은 0008 시점 원문이며, 현재 스키마는 [data-model-guide.md](../data-model-guide.md)를 따른다.
 
 ```sql
 create table teacher_attendance (
@@ -99,7 +101,7 @@ type TeacherAttendanceBatchEntry = {
   comment: string | null;
 };
 
-getTeacherAttendanceView({ date }): TeacherAttendanceRow[]            // 활성 role='teacher', 이름순
+getTeacherAttendanceView({ date }): TeacherAttendanceRow[]            // 활성 role='teacher' + role='teacher' 초대, 이름순
 saveTeacherAttendanceBatch({ date, entries: TeacherAttendanceBatchEntry[] })       // 일반 플러시
 closeTeacherAttendanceAsAbsent({ date, teacherIds, entries: TeacherAttendanceBatchEntry[] })  // 출석 종료
 ```
@@ -112,7 +114,8 @@ closeTeacherAttendanceAsAbsent({ date, teacherIds, entries: TeacherAttendanceBat
 
 - **교사 비활성화·역할 변경**: 명단에서 사라지지만 과거 `teacher_attendance` 행은 그대로 남는다. 삭제하지 않는다.
 - **역할이 admin/pastor로 바뀐 사람의 기존 행**: 보존하되, 새 입력은 RLS가 막는다.
-- **초대만 되고 아직 로그인 안 한 교사**(`teacher_invites`): `teachers` 행이 없어 명단에 나오지 않는다. 첫 로그인 후부터 대상이 된다.
+- **가입 전(초대 대기) 교사**: 명단에 같은 목록으로 나오고 이름 옆에 `초대 대기` 칩이 붙는다. 출석은 `teacher_attendance.invite_id`에 저장된다(`teacher_id`는 null). 첫 Google 로그인 때 `claim_teacher_invite()`가 그 기록들을 새 `teacher_id`로 옮기고 초대를 지운다(최초 기록자 `recorded_by`는 보존, `last_modified_at`은 이관 시각으로 갱신됨).
+- **초대 취소 시 기록도 삭제**: 가입 전 기록이 있는 초대를 취소하면 그 기록도 함께 삭제된다(`invite_id` FK `on delete cascade`). 취소 확인창에 삭제될 기록 건수를 보여준다(마스터 관리 교사 탭). 교사 명단과 출석 대상 판단에는 `role='teacher'` 초대만 포함하고 관리자·목사님 초대는 제외한다.
 - **동시 입력**: `(date, teacher_id)` unique + upsert로 마지막 저장이 이긴다. 학생과 동일.
 - **본인 미기록이 곧 결석은 아님**: 통계로 확장할 때도 학생과 같이 미체크는 분자·분모에서 제외하는 원칙([statistics.md](statistics.md#출석률-정의-중요--반드시-이-정의를-그대로-구현할-것))을 따른다.
 

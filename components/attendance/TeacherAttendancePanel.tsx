@@ -99,21 +99,21 @@ export function TeacherAttendancePanel({
     });
   }, [date, getPendingEntries]);
 
-  function updateRow(teacherId: string, patch: Partial<TeacherAttendanceRow>) {
-    setRows((current) => current.map((r) => (r.teacherId === teacherId ? { ...r, ...patch } : r)));
+  function updateRow(key: string, patch: Partial<TeacherAttendanceRow>) {
+    setRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
   function handleStatusChange(row: TeacherAttendanceRow, status: AttendanceStatus) {
-    updateRow(row.teacherId, { status });
-    markDirty(row.teacherId, { teacherId: row.teacherId, status, comment: row.comment });
+    updateRow(row.key, { status });
+    markDirty(row.key, { target: row.target, status, comment: row.comment });
   }
 
   function handleCommentCommit(row: TeacherAttendanceRow, comment: string) {
     if (row.status === null) return; // 상태 선택 전에는 코멘트 입력 자체가 막혀 있어 정상 흐름에선 안 옴
     const trimmed = comment.trim();
     const nextComment = trimmed || null;
-    updateRow(row.teacherId, { comment: nextComment });
-    markDirty(row.teacherId, { teacherId: row.teacherId, status: row.status, comment: nextComment });
+    updateRow(row.key, { comment: nextComment });
+    markDirty(row.key, { target: row.target, status: row.status, comment: nextComment });
   }
 
   function handleCloseAttendance() {
@@ -126,17 +126,17 @@ export function TeacherAttendancePanel({
     )
       return;
 
-    const missingIds = new Set(missing.map((r) => r.teacherId));
+    const missingKeys = new Set(missing.map((r) => r.key));
     setClosing(true);
-    if (missingIds.size > 0) {
-      setRows((current) => current.map((r) => (missingIds.has(r.teacherId) ? { ...r, status: '결석' } : r)));
+    if (missingKeys.size > 0) {
+      setRows((current) => current.map((r) => (missingKeys.has(r.key) ? { ...r, status: '결석' } : r)));
     }
     const rollbackMissing = () => {
-      if (missingIds.size === 0) return;
-      setRows((current) => current.map((r) => (missingIds.has(r.teacherId) ? { ...r, status: null } : r)));
+      if (missingKeys.size === 0) return;
+      setRows((current) => current.map((r) => (missingKeys.has(r.key) ? { ...r, status: null } : r)));
     };
 
-    closeTeacherAttendanceAsAbsent({ date, teacherIds: [...missingIds], entries })
+    closeTeacherAttendanceAsAbsent({ date, targets: missing.map((r) => r.target), entries })
       .then((result) => {
         if (result.ok) {
           clearPending();
@@ -152,11 +152,11 @@ export function TeacherAttendancePanel({
       .finally(() => setClosing(false));
   }
 
-  function toggleComment(teacherId: string) {
+  function toggleComment(key: string) {
     setCommentOpenIds((current) => {
       const next = new Set(current);
-      if (next.has(teacherId)) next.delete(teacherId);
-      else next.add(teacherId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -226,13 +226,13 @@ export function TeacherAttendancePanel({
           <ul className={`flex flex-col gap-2 ${loadState === 'loading' ? 'opacity-60' : ''}`}>
             {rows.map((row) => (
               <TeacherRow
-                key={row.teacherId}
+                key={row.key}
                 row={row}
                 showLateButton={showLateButton}
                 saving={false}
-                dirty={dirtyIds.has(row.teacherId)}
-                commentOpen={commentOpenIds.has(row.teacherId)}
-                onToggleComment={() => toggleComment(row.teacherId)}
+                dirty={dirtyIds.has(row.key)}
+                commentOpen={commentOpenIds.has(row.key)}
+                onToggleComment={() => toggleComment(row.key)}
                 onCommentBlockedTap={() => showToast('상태를 먼저 선택하세요')}
                 onStatusChange={(status) => handleStatusChange(row, status)}
                 onCommentCommit={(comment) => handleCommentCommit(row, comment)}
