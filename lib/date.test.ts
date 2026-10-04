@@ -8,6 +8,7 @@ import {
   formatDateLabel,
   formatDateTimeLabel,
   formatMonthLabel,
+  isSameSundayWeek,
   isSunday,
   isValidMonth,
   sundayOfWeek,
@@ -126,5 +127,17 @@ describe('formatMonthLabel', () => {
   it('앞자리 0 없이 표기한다', () => {
     expect(formatMonthLabel('2026-09')).toBe('2026년 9월');
     expect(formatMonthLabel('2026-12')).toBe('2026년 12월');
+  });
+});
+
+describe('isSameSundayWeek', () => {
+  it('같은 주(일~토)에 속하면 true', () => {
+    expect(isSameSundayWeek('2026-10-04', '2026-10-10')).toBe(true);
+    expect(isSameSundayWeek('2026-10-11', '2026-10-11')).toBe(true);
+  });
+
+  it('다른 주면 false (지난 주 날짜는 복원하지 않는다)', () => {
+    expect(isSameSundayWeek('2026-10-04', '2026-10-11')).toBe(false);
+    expect(isSameSundayWeek('2026-10-10', '2026-10-11')).toBe(false);
   });
 });

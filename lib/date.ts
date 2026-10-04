@@ -24,6 +24,11 @@ export function sundayOfWeek(dateStr: string): string {
   return toDateStr(date);
 }
 
+// 저장된 날짜가 기본값(이번 주 일요일)과 같은 주인지. 다른 주면 지난 주 날짜를 복원하지 않고 이번 주로 넘어간다.
+export function isSameSundayWeek(dateStr: string, otherDateStr: string): boolean {
+  return sundayOfWeek(dateStr) === sundayOfWeek(otherDateStr);
+}
+
 export function thisWeekSundayInKST(): string {
   return sundayOfWeek(todayInKST());
 }

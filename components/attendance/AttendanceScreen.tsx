@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AttendanceInitialContext } from '@/app/actions/attendance';
 import { loadStoredContext, saveStoredContext, type AttendanceTab } from '@/lib/attendanceStorage';
+import { isSameSundayWeek } from '@/lib/date';
 import { ClassPicker } from './ClassPicker';
 import { DatePicker } from './DatePicker';
 import { StudentAttendancePanel } from './StudentAttendancePanel';
@@ -26,6 +27,7 @@ export function AttendanceScreen({
   const [classId, setClassId] = useState(initialContext.defaultClassId);
   const [date, setDate] = useState(initialContext.defaultDate);
   const hydrated = useRef(false);
+  const defaultDateRef = useRef(initialContext.defaultDate); // 마운트 시점의 서버 기본값만 쓴다(효과 재실행 방지)
 
   // 최초 마운트 시 localStorage(브라우저 전용 외부 저장소)에 기억된 마지막 선택으로 서버 기본값을
   // 덮어쓴다. SSR 시점엔 localStorage가 없어 서버 렌더와 동일한 기본값으로 먼저 그린 뒤, 마운트 후에만
@@ -35,7 +37,8 @@ export function AttendanceScreen({
     if (stored) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 후 1회, 브라우저 전용 저장소 동기화
       setClassId(stored.classId);
-      setDate(stored.date);
+      // 지난 주에 저장된 날짜는 복원하지 않고 이번 주 일요일(서버 기본값)을 쓴다.
+      if (isSameSundayWeek(stored.date, defaultDateRef.current)) setDate(stored.date);
       setTab(stored.tab);
     }
     hydrated.current = true;
